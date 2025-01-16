@@ -18,13 +18,14 @@ import (
 func (s *Service) getUnseenBlocks(ctx context.Context, seq uint32) (master *ton.BlockIDExt, shards []*ton.BlockIDExt, err error) {
 	master, shards, err = s.Fetcher.UnseenBlocks(ctx, seq)
 	if err != nil {
-		if !errors.Is(err, ton.ErrBlockNotFound) && !(err != nil && strings.Contains(err.Error(), "block is not applied")) {
+		if !errors.Is(err, ton.ErrBlockNotFound) && !(strings.Contains(err.Error(), "block is not applied")) {
 			return nil, nil, errors.Wrap(err, "cannot fetch unseen blocks")
 		}
 
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
+		// Пытаемся достать из мастера новый блок в течение 10 секунд, если вдруг не нашли блок сразу
 		master, err = s.Fetcher.LookupMaster(ctx, s.API.WaitForBlock(seq), seq)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "wait for master block")
@@ -177,6 +178,9 @@ func (s *Service) fetchMasterLoop(fromBlock uint32, results chan<- *core.Block) 
 		blocks := s.fetchMastersConcurrent(fromBlock)
 		for i := range blocks {
 			if fromBlock != blocks[i].SeqNo {
+				// Если вдруг текущий блок идет не по порядку,
+				// например: запросили 0 1 2 3 блоки, а получили 0 1 3 4 (вместо ожидаемой 2 сразу перескочили на 3),
+				// тогда запрашиваем блоки заново
 				break
 			}
 			results <- blocks[i]
