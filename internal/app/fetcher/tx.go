@@ -133,6 +133,7 @@ func (s *Service) fetchTxIDs(ctx context.Context, b *ton.BlockIDExt, after *ton.
 	return s.API.GetBlockTransactionsV2(ctx, b, 100, after)
 }
 
+// BlockTransactions возвращает транзакции указанного блока
 func (s *Service) BlockTransactions(ctx context.Context, master, b *ton.BlockIDExt) ([]*core.Transaction, error) {
 	var (
 		after        *ton.TransactionID3
@@ -144,15 +145,19 @@ func (s *Service) BlockTransactions(ctx context.Context, master, b *ton.BlockIDE
 
 	defer app.TimeTrack(time.Now(), "BlockTransactions(%d, %d)", b.Workchain, b.SeqNo)
 
+	// Проходим по транзакциям блока, пока они не закончатся
 	for more {
+		// Получаем n идентификаторов транзакций текущего блока
 		fetchedIDs, more, err = s.fetchTxIDs(ctx, b, after)
 		if err != nil {
 			return nil, errors.Wrapf(err, "get block transactions (workchain = %d, seq = %d)", b.Workchain, b.SeqNo)
 		}
 		if more {
+			// Сохраняем идентификатор самой последней полученной транзакции
 			after = fetchedIDs[len(fetchedIDs)-1].ID3()
 		}
 
+		// Получаем сами транзакций и сохраняем его
 		rawTx, err := s.getTransactions(ctx, master, b, fetchedIDs)
 		if err != nil {
 			return nil, err

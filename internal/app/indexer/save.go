@@ -195,6 +195,7 @@ func (s *Service) uniqMessages(ctx context.Context, transactions []*core.Transac
 
 var lastLog = time.Now()
 
+// saveBlock сохраняет блок и все транзакции из него
 func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
 	newBlocks := append([]*core.Block{master}, master.Shards...)
 
@@ -215,6 +216,7 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
 	lvl.Uint32("last_inserted_seq", master.SeqNo).Msg("inserted new block")
 }
 
+// saveBlockLoop сохраняет блоки
 func (s *Service) saveBlocksLoop(results <-chan *core.Block) {
 	t := time.NewTicker(100 * time.Millisecond)
 	defer t.Stop()

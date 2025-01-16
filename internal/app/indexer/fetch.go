@@ -15,16 +15,19 @@ import (
 	"github.com/tonindexer/anton/internal/core"
 )
 
+// getUnseenBlocks достает блоки, между текущим и предыдущим стейтами master chain'a
+// Note: если не получилось достать блоки из мастера сразу, то ждем до 10 секунд в ожидании нового блока в blockchain'e
 func (s *Service) getUnseenBlocks(ctx context.Context, seq uint32) (master *ton.BlockIDExt, shards []*ton.BlockIDExt, err error) {
 	master, shards, err = s.Fetcher.UnseenBlocks(ctx, seq)
 	if err != nil {
-		if !errors.Is(err, ton.ErrBlockNotFound) && !(err != nil && strings.Contains(err.Error(), "block is not applied")) {
+		if !errors.Is(err, ton.ErrBlockNotFound) && !(strings.Contains(err.Error(), "block is not applied")) {
 			return nil, nil, errors.Wrap(err, "cannot fetch unseen blocks")
 		}
 
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
+		// Пытаемся достать из мастера новый блок в течение 10 секунд, если вдруг не нашли блок сразу
 		master, err = s.Fetcher.LookupMaster(ctx, s.API.WaitForBlock(seq), seq)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "wait for master block")
@@ -37,6 +40,7 @@ func (s *Service) getUnseenBlocks(ctx context.Context, seq uint32) (master *ton.
 	return master, shards, nil
 }
 
+// fetchMaster возвращает все необработанные блоки с транзакциями для указанного master chain блока
 func (s *Service) fetchMaster(seq uint32) *core.Block {
 	type processedBlock struct {
 		block *core.Block
@@ -60,6 +64,7 @@ func (s *Service) fetchMaster(seq uint32) *core.Block {
 
 		ch := make(chan processedBlock, len(shards)+1)
 
+		// Запускаем горутину, чтобы получить транзакции с блока master chain'а
 		go func() {
 			defer wg.Done()
 
@@ -79,6 +84,7 @@ func (s *Service) fetchMaster(seq uint32) *core.Block {
 			}
 		}()
 
+		// Запускаем горутину, чтобы получить транзакции с каждого шарда
 		for i := range shards {
 			go func(shard *ton.BlockIDExt) {
 				defer wg.Done()
@@ -108,6 +114,7 @@ func (s *Service) fetchMaster(seq uint32) *core.Block {
 		wg.Wait()
 		close(ch)
 
+		// Агрегируем все блоки текущего master chain стейта в одну сущность
 		var (
 			errBlock  processedBlock
 			gotMaster *core.Block
@@ -138,6 +145,7 @@ func (s *Service) fetchMaster(seq uint32) *core.Block {
 	}
 }
 
+// fetchMastersConcurrent пройтись по стейтам master chain'a и собрать все блоки транзакций с них
 func (s *Service) fetchMastersConcurrent(fromBlock uint32) []*core.Block {
 	var blocks []*core.Block
 	var wg sync.WaitGroup
@@ -170,6 +178,7 @@ func (s *Service) fetchMastersConcurrent(fromBlock uint32) []*core.Block {
 	return blocks
 }
 
+// fetchMasterLoop собирает все блоки с транзакциями с master chain'а с указанного блока
 func (s *Service) fetchMasterLoop(fromBlock uint32, results chan<- *core.Block) {
 	defer s.wg.Done()
 
@@ -177,6 +186,9 @@ func (s *Service) fetchMasterLoop(fromBlock uint32, results chan<- *core.Block) 
 		blocks := s.fetchMastersConcurrent(fromBlock)
 		for i := range blocks {
 			if fromBlock != blocks[i].SeqNo {
+				// Если вдруг текущий блок идет не по порядку,
+				// например: запросили 0 1 2 3 блоки, а получили 0 1 3 4 (вместо ожидаемой 2 сразу перескочили на 3),
+				// тогда запрашиваем блоки заново
 				break
 			}
 			results <- blocks[i]
