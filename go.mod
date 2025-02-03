@@ -1,6 +1,8 @@
 module github.com/tonindexer/anton
 
-go 1.19
+go 1.22
+
+toolchain go1.23.3
 
 replace github.com/uptrace/go-clickhouse v0.3.1 => github.com/iam047801/go-clickhouse v0.0.0-20240229162752-6a94cfc6c817 // go-clickhouse branch with dirty fixes
 
@@ -11,7 +13,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.29.0
 	github.com/sigurn/crc16 v0.0.0-20211026045750-20ab5afb07e3
-	github.com/stretchr/testify v1.8.3
+	github.com/stretchr/testify v1.9.0
 	github.com/swaggo/files v1.0.0
 	github.com/swaggo/gin-swagger v1.5.3
 	github.com/swaggo/swag v1.8.10
@@ -25,7 +27,26 @@ require (
 	github.com/xssnick/tonutils-go v1.9.5
 )
 
-require github.com/gin-contrib/cors v1.4.0
+require (
+	github.com/gin-contrib/cors v1.4.0
+	go.etcd.io/etcd/client/v3 v3.5.16
+)
+
+require (
+	github.com/coreos/go-semver v0.3.0 // indirect
+	github.com/coreos/go-systemd/v22 v22.3.3-0.20220203105225-a9a7ef127534 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
+	go.etcd.io/etcd/api/v3 v3.5.16 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.5.16 // indirect
+	go.uber.org/atomic v1.7.0 // indirect
+	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/zap v1.17.0 // indirect
+	google.golang.org/genproto v0.0.0-20230822172742-b8732ec3820d // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20230822172742-b8732ec3820d // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20230822172742-b8732ec3820d // indirect
+	google.golang.org/grpc v1.59.0 // indirect
+)
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
@@ -70,13 +91,13 @@ require (
 	go.opentelemetry.io/otel v1.16.0 // indirect
 	go.opentelemetry.io/otel/trace v1.16.0 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
-	golang.org/x/crypto v0.17.0 // indirect
+	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1 // indirect
-	golang.org/x/net v0.10.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/net v0.23.0 // indirect
+	golang.org/x/sys v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.6.0 // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	mellium.im/sasl v0.3.1 // indirect

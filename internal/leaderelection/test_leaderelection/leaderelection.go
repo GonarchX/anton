@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -52,7 +53,8 @@ func NewLeaderElector(config LeaderElectionConfig) (*LeaderElector, error) {
 
 // Run запускает процесс выбора лидера.
 func (le *LeaderElector) Run(ctx context.Context) {
-	retryTicker := time.NewTicker(le.config.RetryPeriod)
+	// Случайный сдвиг, чтобы не случился live lock, хотя навряд ли это не предусмотрели в ETCD
+	retryTicker := time.NewTicker(le.config.RetryPeriod + time.Duration(rand.Intn(100))*time.Millisecond)
 	for {
 		select {
 		case <-ctx.Done():
