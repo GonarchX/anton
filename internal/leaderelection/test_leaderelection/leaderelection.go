@@ -65,8 +65,8 @@ func (le *LeaderElector) Run(ctx context.Context) {
 	}
 }
 
-// Stop останавливает лидерство.
-func (le *LeaderElector) Stop(ctx context.Context) {
+// Close останавливает лидерство.
+func (le *LeaderElector) Close(ctx context.Context) {
 	if err := le.config.Lock.Unlock(ctx); err != nil {
 		fmt.Printf("Failed to stop leading: %v\n", err) // TODO: добавить имя пода
 		le.config.Callbacks.OnStoppedLeading()
@@ -81,6 +81,7 @@ func (le *LeaderElector) tryAcquireOrRenew(ctx context.Context) {
 	if err != nil {
 		if le.isLeader {
 			fmt.Printf("Lost leadership: %v\n", err) // TODO: добавить имя пода
+			le.isLeader = false
 			le.config.Callbacks.OnStoppedLeading()
 			return
 		}
