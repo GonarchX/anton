@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/redis/go-redis/v9"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"sync/atomic"
 	"time"
@@ -23,6 +22,10 @@ import (
 Если под является лидером, тогда он каждый RenewalPeriod продлевает свое лидерство на time.Now() + LeaderTTL.
 При успешном продлении или взятии лидерства lastLeadershipTime выставляется time.Now()
 */
+
+const (
+	defaultLeaderKey = "leader_lock"
+)
 
 // Config определяет конфигурацию для выбора лидера.
 type Config struct {
@@ -84,7 +87,6 @@ type LeaderElector struct {
 	config             *Config
 	callbacks          LeaderCallbacks
 	lockClient         DistributedLockClient
-	logger             zerolog.Logger
 	lastLeadershipTime time.Time
 }
 
@@ -99,15 +101,12 @@ type DistributedLockClient interface {
 func NewLeaderElector(
 	config *Config,
 	callbacks LeaderCallbacks,
-	rdb *redis.Client,
-	logger zerolog.Logger,
+	rdb DistributedLockClient,
 ) *LeaderElector {
-	enrichedLogger := logger.With().Str("NodeID", config.NodeID).Logger()
 	return &LeaderElector{
 		config:     config,
 		callbacks:  callbacks,
 		lockClient: rdb,
-		logger:     enrichedLogger,
 	}
 }
 
