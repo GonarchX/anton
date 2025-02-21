@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"sync/atomic"
 	"time"
@@ -88,6 +89,7 @@ type LeaderElector struct {
 	callbacks          LeaderCallbacks
 	lockClient         DistributedLockClient
 	lastLeadershipTime time.Time
+	logger             *zerolog.Logger
 }
 
 //go:generate mockgen -package=mocks -source=leaderelection.go -destination=mocks/mock_distributed_lock_client.go
@@ -103,10 +105,13 @@ func NewLeaderElector(
 	callbacks LeaderCallbacks,
 	rdb DistributedLockClient,
 ) *LeaderElector {
+	enrichedLogger := log.Logger.With().Str("NodeID", config.NodeID).Logger()
+
 	return &LeaderElector{
 		config:     config,
 		callbacks:  callbacks,
 		lockClient: rdb,
+		logger:     &enrichedLogger,
 	}
 }
 
@@ -125,7 +130,7 @@ func (l *LeaderElector) Run(ctx context.Context) {
 func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 	// Кейс, когда мы теряем лидерство из-за того, что не смогли продлить его за election timeout
 	if l.isLeader.Load() && time.Since(l.lastLeadershipTime) > l.config.ElectionTimeout {
-		log.Error().Msg("Lose leadership: election timeout")
+		l.logger.Error().Msg("Lose leadership: election timeout")
 		l.loseLeadership()
 		return
 	}
@@ -133,20 +138,20 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 	// Попытка захватить блокировку.
 	_, err := l.lockClient.SetNX(ctx, l.config.LockKey, l.config.NodeID, l.config.LeaderTTL).Result()
 	if err != nil {
-		log.Error().Msgf("Error acquiring lock: %v", err)
+		l.logger.Error().Msgf("Error acquiring lock: %v", err)
 		return
 	}
 
 	// Проверяем успешность блокировки.
 	val, err := l.lockClient.Get(ctx, l.config.LockKey).Result()
 	if err != nil {
-		log.Error().Msgf("Error checking lock: %v", err)
+		l.logger.Error().Msgf("Error checking lock: %v", err)
 		return
 	}
 
 	// Что-то странное, возможно, время жизни блокировки слишком маленькое и ключ успел удалиться до проверки.
 	if errors.Is(err, redis.Nil) {
-		log.Error().Msg("Leader lock value is nil")
+		l.logger.Error().Msg("Leader lock value is nil")
 		return
 	}
 
@@ -154,7 +159,7 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 	if val != l.config.NodeID {
 		// Если под был лидером, но не смог захватить блокировку, тогда лишаемся статус лидера.
 		if l.isLeader.Load() {
-			log.Debug().Msg("Lose leadership: failed to renew lock")
+			l.logger.Debug().Msg("Lose leadership: failed to renew lock")
 			l.loseLeadership()
 		}
 		return
@@ -162,19 +167,19 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 
 	// Успешно захватили лидерство на follower поде.
 	if !l.isLeader.Load() {
-		log.Debug().Msg("Own leadership")
+		l.logger.Debug().Msg("Own leadership")
 		l.ownLeadership()
 	}
 
 	// Продлеваем блокировку.
 	_, err = l.lockClient.Expire(ctx, l.config.LockKey, l.config.LeaderTTL).Result()
 	if err != nil {
-		log.Error().Msgf("Failed to renew lock: %v", err)
+		l.logger.Error().Msgf("Failed to renew lock: %v", err)
 		return
 	}
 
 	l.lastLeadershipTime = time.Now()
-	log.Debug().Msg("Lock renewed")
+	l.logger.Debug().Msg("Lock renewed")
 }
 
 // ownLeadership действия при получении лидерства.

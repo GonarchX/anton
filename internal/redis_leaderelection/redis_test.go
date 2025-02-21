@@ -3,8 +3,6 @@ package leaderelection
 import (
 	"context"
 	"errors"
-	"github.com/rs/zerolog"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,18 +28,12 @@ func TestLeaderElector_TryAcquireLeadership(t *testing.T) {
 
 	var onStartCallbackCalls int
 	var onStopCallbackCalls int
-
-	leaderElector := &LeaderElector{
-		isLeader: atomic.Bool{},
-		config:   config,
-		callbacks: LeaderCallbacks{
-			OnStartLeading: func() { onStartCallbackCalls++ },
-			OnStopLeading:  func() { onStopCallbackCalls++ },
-		},
-		lockClient:         mockLockClient,
-		logger:             zerolog.Logger{},
-		lastLeadershipTime: time.Time{},
+	callbacks := LeaderCallbacks{
+		OnStartLeading: func() { onStartCallbackCalls++ },
+		OnStopLeading:  func() { onStopCallbackCalls++ },
 	}
+
+	leaderElector := NewLeaderElector(config, callbacks, mockLockClient)
 
 	ctx := context.Background()
 
