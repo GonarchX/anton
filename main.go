@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/google/uuid"
 	"os"
 
 	"github.com/allisson/go-env"
@@ -18,7 +19,7 @@ import (
 	"github.com/tonindexer/anton/cmd/web"
 )
 
-func init() {
+func setupLogger() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 
 	level := zerolog.InfoLevel
@@ -27,10 +28,11 @@ func init() {
 	}
 
 	// add file and line number to log
-	log.Logger = log.With().Caller().Logger().Level(level)
+	log.Logger = log.With().Str("NodeID", uuid.NewString()).Caller().Logger().Level(level)
 }
 
 func main() {
+	setupLogger()
 	app := &cli.App{
 		Name:  "anton",
 		Usage: "an indexing project",

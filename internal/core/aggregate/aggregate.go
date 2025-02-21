@@ -83,6 +83,7 @@ func unmarshalInterfacesKey(raw string) (ret []abi.ContractName) {
 	return ret
 }
 
+// getBlockStatistics returns first and last masterchain blocks
 func getBlockStatistics(ctx context.Context, ck *ch.DB, ret *Statistics) error {
 	err := ck.NewSelect().Model((*core.Block)(nil)).
 		ColumnExpr("count(seq_no) as masterchain_block_count").
