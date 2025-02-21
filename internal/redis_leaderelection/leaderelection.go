@@ -106,7 +106,6 @@ func NewLeaderElector(
 	rdb DistributedLockClient,
 ) *LeaderElector {
 	enrichedLogger := log.Logger.With().Str("NodeID", config.NodeID).Logger()
-
 	return &LeaderElector{
 		config:     config,
 		callbacks:  callbacks,
@@ -157,6 +156,7 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 
 	// Другой узел владеет блокировкой.
 	if val != l.config.NodeID {
+		l.logger.Debug().Msg("Failed to own leadership")
 		// Если под был лидером, но не смог захватить блокировку, тогда лишаемся статус лидера.
 		if l.isLeader.Load() {
 			l.logger.Debug().Msg("Lose leadership: failed to renew lock")
