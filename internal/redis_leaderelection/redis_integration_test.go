@@ -3,6 +3,7 @@ package leaderelection
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
 	"github.com/tonindexer/anton/test"
 	"github.com/tonindexer/anton/test/container"
 )
@@ -32,8 +32,17 @@ type LeaderElectionResult struct {
 
 func init() {
 	test.SetupLogger(zerolog.DebugLevel)
-	container.RemoveContainersWithPrefix(testContainerPrefix)
 }
+
+/*var CurrentRedisPort = 6379
+var mu = &sync.Mutex{}
+
+func GetNextRedisPort() int {
+	mu.Lock()
+	defer mu.Unlock()
+
+	return
+}*/
 
 func setupRedisContainer(cli *client.Client) (string, error) {
 	containerName := testContainerPrefix + "-redis"
@@ -60,9 +69,9 @@ func setupRedisContainer(cli *client.Client) (string, error) {
 		return "", fmt.Errorf("ошибка при создании контейнера: %v", err)
 	}
 
-	s, err := container.Start(ctx, cli, resp.ID)
+	err = container.Start(ctx, cli, resp.ID)
 	if err != nil {
-		return s, err
+		return "", err
 	}
 
 	return resp.ID, nil
@@ -109,350 +118,498 @@ func createCallbacks(ctx context.Context, leResults chan LeaderElectionResult, n
 	return callbacks
 }
 
-// Запущен лидер и ведомый узлы. Редис не выходит из строя. Лидерство не теряется.
-func TestRedisClusterContainer(t *testing.T) {
+func runLeaderElector(ctx context.Context, leaderKey, nodeID string, leResults chan LeaderElectionResult, rdb *redis.Client) *LeaderElector {
+	config := &Config{
+		LockKey:         leaderKey,
+		NodeID:          nodeID,
+		LeaderTTL:       leaderTTL,
+		ElectionTimeout: electionTimeout,
+		RenewalPeriod:   renewalPeriod,
+	}
+	callbacks := createCallbacks(ctx, leResults, config.NodeID)
+	le := NewLeaderElector(config, callbacks, rdb)
+	go le.Run(ctx)
+	return le
+}
+
+//// Запущен лидер и ведомый узлы. Редис не выходит из строя. Лидерство не теряется.
+//func TestRedisClusterContainer(t *testing.T) {
+//	ctx, cancel := context.WithCancel(context.Background())
+//
+//	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
+//	require.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
+//
+//	containerID, err := setupRedisContainer(cli)
+//	require.NoError(t, err)
+//	defer func() {
+//		require.NoError(t, container.RemoveContainer(cli, containerID), "Failed to remove container: %v", err)
+//	}()
+//
+//	rdb, err := connectToRedis()
+//	require.NoError(t, err)
+//	defer func() {
+//		require.NoError(t, rdb.Close())
+//	}()
+//
+//	leaderKey := defaultLeaderKey + uuid.NewString()
+//	leResults := make(chan LeaderElectionResult, 64)
+//
+//	// Создаем leader узел.
+//	const leaderNodeID = "node-leader"
+//	leaderLE := runLeaderElector(ctx, leaderKey, leaderNodeID, leResults, rdb)
+//
+//	// Ждем, чтобы успеть завладеть лидерством.
+//	_, err = backoff.Retry(ctx, func() (struct{}, error) {
+//		if leaderLE.isLeader.Load() {
+//			return struct{}{}, nil
+//		}
+//		return struct{}{}, errors.New("node could not acquire leadership in a given period")
+//	}, backoff.WithMaxElapsedTime(5*time.Second))
+//	require.NoError(t, err)
+//
+//	// Создаем follower узел.
+//	const followerNodeID = "node-follower"
+//	followerLE := runLeaderElector(ctx, leaderKey, followerNodeID, leResults, rdb)
+//
+//	cancel()
+//	close(leResults)
+//
+//	results := make([]LeaderElectionResult, 0)
+//	for result := range leResults {
+//		results = append(results, result)
+//		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
+//	}
+//
+//	for _, result := range results {
+//		if result.NodeID == leaderNodeID {
+//			require.True(t, result.IsLeader)
+//		} else if result.NodeID == followerNodeID {
+//			require.False(t, result.IsLeader)
+//		}
+//	}
+//
+//	require.True(t, leaderLE.isLeader.Load())
+//	require.False(t, followerLE.isLeader.Load())
+//}
+//
+//// Запущен лидер и ведомый узлы. Редис выходит из строя на renewInterval. Лидерство не теряется.
+//func TestRedisClusterContainer2(t *testing.T) {
+//	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
+//	require.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
+//
+//	containerID, err := setupRedisContainer(cli)
+//	require.NoError(t, err)
+//
+//	rdb, err := connectToRedis()
+//	require.NoError(t, err)
+//	defer func() {
+//		require.NoError(t, rdb.Close())
+//	}()
+//
+//	ctx, cancel := context.WithCancel(context.Background())
+//	leaderKey := defaultLeaderKey + uuid.NewString()
+//	leResults := make(chan LeaderElectionResult, 64)
+//
+//	// Создаем leader узел.
+//	const leaderNodeID = "node-leader"
+//	leaderLE := runLeaderElector(ctx, leaderKey, leaderNodeID, leResults, rdb)
+//
+//	// Ждем, чтобы успеть завладеть лидерством.
+//	_, err = backoff.Retry(ctx, func() (struct{}, error) {
+//		if leaderLE.isLeader.Load() {
+//			return struct{}{}, nil
+//		}
+//		return struct{}{}, errors.New("node could not acquire leadership in a given period")
+//	}, backoff.WithMaxElapsedTime(5*time.Second))
+//	require.NoError(t, err)
+//
+//	// Создаем follower узел.
+//	const followerNodeID = "node-follower"
+//	followerLE := runLeaderElector(ctx, leaderKey, followerNodeID, leResults, rdb)
+//
+//	require.NoError(t, container.StopContainer(cli, containerID), "Failed to remove container: %v", err)
+//
+//	const renewTimeout = 2 * time.Second
+//	time.Sleep(renewTimeout)
+//	require.NoError(t, container.Start(ctx, cli, containerID), "Failed to start container: %v", err)
+//	defer require.NoError(t, err, "Failed to remove container: %v", err)
+//	time.Sleep(10 * time.Second)
+//	// Проверяем результаты работы LeaderElector.
+//	cancel()
+//	close(leResults)
+//
+//	results := make([]LeaderElectionResult, 0)
+//	for result := range leResults {
+//		results = append(results, result)
+//		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
+//	}
+//
+//	for _, result := range results {
+//		if result.NodeID == leaderNodeID {
+//			require.True(t, result.IsLeader)
+//		} else if result.NodeID == followerNodeID {
+//			require.False(t, result.IsLeader)
+//		}
+//	}
+//
+//	require.True(t, leaderLE.isLeader.Load())
+//	require.False(t, followerLE.isLeader.Load())
+//}
+//
+//// Запущен лидер и ведомый узлы. Редис выходит из строя на electionTimeout. Лидерство теряется, потом возвращается лидером.
+//func TestRedisClusterContainer3(t *testing.T) {
+//	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
+//	require.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
+//
+//	containerID, err := setupRedisContainer(cli)
+//	require.NoError(t, err)
+//
+//	rdb, err := connectToRedis()
+//	require.NoError(t, err)
+//	defer func() {
+//		require.NoError(t, rdb.Close())
+//	}()
+//
+//	ctx, cancel := context.WithCancel(context.Background())
+//	leaderKey := defaultLeaderKey + uuid.NewString()
+//	leResults := make(chan LeaderElectionResult, 64)
+//
+//	// Создаем leader узел.
+//	const leaderNodeID = "node-leader"
+//	leaderLE := runLeaderElector(ctx, leaderKey, leaderNodeID, leResults, rdb)
+//
+//	// Ждем, чтобы успеть завладеть лидерством.
+//	_, err = backoff.Retry(ctx, func() (struct{}, error) {
+//		if leaderLE.isLeader.Load() {
+//			return struct{}{}, nil
+//		}
+//		return struct{}{}, errors.New("node could not acquire leadership in a given period")
+//	}, backoff.WithMaxElapsedTime(5*time.Second))
+//	require.NoError(t, err)
+//
+//	// Создаем follower узел.
+//	const followerNodeID = "node-follower"
+//	runLeaderElector(ctx, leaderKey, followerNodeID, leResults, rdb)
+//
+//	require.NoError(t, container.StopContainer(cli, containerID), "Failed to remove container: %v", err)
+//
+//	const electionTimeout = 5 * time.Second
+//	time.Sleep(electionTimeout)
+//	// Запускаем Redis обратно
+//	require.NoError(t, container.Start(ctx, cli, containerID), "Failed to start container: %v", err)
+//	defer require.NoError(t, err, "Failed to start container: %v", err)
+//	time.Sleep(5 * time.Second)
+//
+//	// Проверяем результаты работы LeaderElector.
+//	cancel()
+//	close(leResults)
+//
+//	results := make([]LeaderElectionResult, 0)
+//	for result := range leResults {
+//		results = append(results, result)
+//		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
+//	}
+//
+//	/*
+//		Всего должно быть 3 события:
+//		1) leaderNode получил лидерство
+//		2) leaderNode потерял лидерство
+//		3) leaderNode возвращает лидерство, т.к. после возвращения Redis'а у него остается еще leaderTTL - electionTimeout времени.
+//	*/
+//	require.Equal(t, 3, len(results))
+//
+//	require.Equal(t, leaderNodeID, results[0].NodeID)
+//	require.True(t, results[0].IsLeader)
+//
+//	require.Equal(t, leaderNodeID, results[1].NodeID)
+//	require.False(t, results[1].IsLeader)
+//
+//	require.Equal(t, leaderNodeID, results[2].NodeID)
+//	require.True(t, results[2].IsLeader)
+//}
+//
+//// Запущен лидер и ведомый узлы. Редис выходит из строя на leaderTTL. Лидерство теряется, потом кто-то становится лидером.
+//func TestRedisClusterContainer4(t *testing.T) {
+//	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
+//	require.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
+//
+//	containerID, err := setupRedisContainer(cli)
+//	require.NoError(t, err)
+//
+//	rdb, err := connectToRedis()
+//	require.NoError(t, err)
+//	defer func() {
+//		require.NoError(t, rdb.Close())
+//	}()
+//
+//	ctx, cancel := context.WithCancel(context.Background())
+//	leaderKey := defaultLeaderKey + uuid.NewString()
+//	leResults := make(chan LeaderElectionResult, 64)
+//
+//	// Создаем leader узел.
+//	const leaderNodeID = "node-leader"
+//	leaderLE := runLeaderElector(ctx, leaderKey, leaderNodeID, leResults, rdb)
+//
+//	// Ждем, чтобы успеть завладеть лидерством.
+//	_, err = backoff.Retry(ctx, func() (struct{}, error) {
+//		if leaderLE.isLeader.Load() {
+//			return struct{}{}, nil
+//		}
+//		return struct{}{}, errors.New("node could not acquire leadership in a given period")
+//	}, backoff.WithMaxElapsedTime(5*time.Second))
+//	require.NoError(t, err)
+//
+//	// Создаем follower узел.
+//	const followerNodeID = "node-follower"
+//	runLeaderElector(ctx, leaderKey, followerNodeID, leResults, rdb)
+//
+//	require.NoError(t, container.StopContainer(cli, containerID), "Failed to remove container: %v", err)
+//
+//	const leaderTTL = 5 * time.Second
+//	time.Sleep(leaderTTL)
+//	// Запускаем Redis обратно
+//	require.NoError(t, container.Start(ctx, cli, containerID), "Failed to start container: %v", err)
+//	defer require.NoError(t, err, "Failed to start container: %v", err)
+//	time.Sleep(5 * time.Second)
+//
+//	// Проверяем результаты работы LeaderElector.
+//	cancel()
+//	close(leResults)
+//
+//	results := make([]LeaderElectionResult, 0)
+//	for result := range leResults {
+//		results = append(results, result)
+//		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
+//	}
+//
+//	/*
+//		Всего должно быть 3 события:
+//		1) leaderNode получил лидерство
+//		2) leaderNode потерял лидерство
+//		3) leaderNode или followerNode получил лидерство (кто первый успел, поэтому порядок не детерминирован)
+//	*/
+//	require.Equal(t, 3, len(results))
+//
+//	require.Equal(t, leaderNodeID, results[0].NodeID)
+//	require.True(t, results[0].IsLeader)
+//
+//	require.Equal(t, leaderNodeID, results[1].NodeID)
+//	require.False(t, results[1].IsLeader)
+//
+//	require.True(t, results[2].IsLeader)
+//}
+
+func TestLeaderElection_RedisDown(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		downtime      time.Duration
+		assertResults func(results []LeaderElectionResult)
+	}{
+		{
+			name:     "renewalPeriod downtime",
+			downtime: renewalPeriod,
+			assertResults: func(results []LeaderElectionResult) {
+				// В данном кейсе должна прийти информация только о получении лидерства.
+				require.Equal(t, 1, len(results))
+				require.True(t, results[0].IsLeader)
+			},
+		},
+		{
+			name:     "electionTimeout downtime",
+			downtime: electionTimeout,
+			assertResults: func(results []LeaderElectionResult) {
+				for _, result := range results {
+					fmt.Printf("%v - %v \n", result.NodeID, result.IsLeader)
+				}
+				require.Equal(t, 3, len(results))
+
+				// Один из узлов получил лидерство.
+				leaderNodeID := results[0].NodeID
+				require.True(t, results[0].IsLeader)
+
+				// Далее этот узел потерял лидерство.
+				require.Equal(t, leaderNodeID, results[1].NodeID)
+				require.False(t, results[1].IsLeader)
+
+				// Этот же узел возвращает лидерство, т.к. после возвращения Redis'а у него остается еще leaderTTL - electionTimeout времени.
+				require.Equal(t, leaderNodeID, results[2].NodeID)
+				require.True(t, results[2].IsLeader)
+			},
+		},
+		{
+			name:     "leaderTTL downtime",
+			downtime: leaderTTL,
+			assertResults: func(results []LeaderElectionResult) {
+
+				require.Equal(t, 3, len(results))
+
+				// Один из узлов получил лидерство.
+				leaderNodeID := results[0].NodeID
+				require.True(t, results[0].IsLeader)
+
+				// Далее этот узел потерял лидерство.
+				require.Equal(t, leaderNodeID, results[1].NodeID)
+				require.False(t, results[1].IsLeader)
+
+				// В конце концов один из узлов получил лидерство (кто первый успел, поэтому порядок не детерминирован).
+				require.True(t, results[2].IsLeader)
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			//t.Parallel()
+			results := testLeaderElectionWithRedisFailure(t, tc.downtime)
+			tc.assertResults(results)
+		})
+	}
+}
+
+// testLeaderElectionWithRedisFailure эмулирует падение редиса в течение заданного времени при подключенных leader и follower узлах.
+func testLeaderElectionWithRedisFailure(t *testing.T, downDuration time.Duration) []LeaderElectionResult {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
-	assert.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
+	require.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
 
 	containerID, err := setupRedisContainer(cli)
-	assert.NoError(t, err)
-	defer func() {
-		assert.NoError(t, container.RemoveContainer(cli, containerID), "Failed to remove container: %v", err)
-	}()
+	require.NoError(t, err)
 
 	rdb, err := connectToRedis()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() {
-		assert.NoError(t, rdb.Close())
+		require.NoError(t, rdb.Close())
 	}()
 
 	leaderKey := defaultLeaderKey + uuid.NewString()
 	leResults := make(chan LeaderElectionResult, 64)
 
-	// Создаем leader узел.
-	const leaderNodeID = "node-leader"
-	config := &Config{
-		LockKey:         leaderKey,
-		NodeID:          leaderNodeID,
-		LeaderTTL:       10 * time.Second,
-		ElectionTimeout: 5 * time.Second,
-		RenewalPeriod:   2 * time.Second,
-	}
-	callbacks := createCallbacks(ctx, leResults, config.NodeID)
-	leaderLE := NewLeaderElector(config, callbacks, rdb)
-	go leaderLE.Run(ctx)
+	node1LE := runLeaderElector(ctx, leaderKey, NodeID1, leResults, rdb)
+	node2LE := runLeaderElector(ctx, leaderKey, NodeID2, leResults, rdb)
 
-	// Ждем, чтобы успеть завладеть лидерством.
-	_, err = backoff.Retry(ctx, func() (struct{}, error) {
-		if leaderLE.isLeader.Load() {
-			return struct{}{}, nil
-		}
-		return struct{}{}, errors.New("node could not acquire leadership in a given period")
-	}, backoff.WithMaxElapsedTime(5*time.Second))
-	assert.NoError(t, err)
+	waitForLeader(t, ctx, node1LE, node2LE)
 
-	// Создаем follower узел.
-	const followerNodeID = "node-follower"
-	config = &Config{
-		LockKey:         leaderKey,
-		NodeID:          followerNodeID,
-		LeaderTTL:       10 * time.Second,
-		ElectionTimeout: 5 * time.Second,
-		RenewalPeriod:   2 * time.Second,
-	}
-	callbacks = createCallbacks(ctx, leResults, config.NodeID)
-	followerLE := NewLeaderElector(config, callbacks, rdb)
-	go followerLE.Run(ctx)
+	// Эмулируем падение Redis указанное время.
+	require.NoError(t, container.StopContainer(cli, containerID), "Failed to remove container: %v", err)
+	time.Sleep(downDuration)
 
+	// Запускаем Redis обратно.
+	require.NoError(t, container.Start(ctx, cli, containerID), "Failed to start container: %v", err)
+	defer func() {
+		require.NoError(t, container.RemoveContainer(cli, containerID), "Failed to remove container: %v", err)
+	}()
+
+	waitForLeader(t, ctx, node1LE, node2LE)
+
+	// Останавливаем работу узлов и проверяем результат.
 	cancel()
 	close(leResults)
 
-	results := make([]LeaderElectionResult, 0, 2)
+	results := make([]LeaderElectionResult, 0)
 	for result := range leResults {
 		results = append(results, result)
-		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
 	}
 
-	for _, result := range results {
-		if result.NodeID == leaderNodeID {
-			assert.True(t, result.IsLeader)
-		} else if result.NodeID == followerNodeID {
-			assert.False(t, result.IsLeader)
-		}
-	}
+	// Только один узел должен остаться лидером.
+	require.NotEqual(t, node1LE.isLeader.Load(), node2LE.isLeader.Load())
 
-	assert.True(t, leaderLE.isLeader.Load())
-	assert.False(t, followerLE.isLeader.Load())
+	return results
 }
 
-// Запущен лидер и ведомый узлы. Редис выходит из строя на renewInterval. Лидерство не теряется.
-func TestRedisClusterContainer2(t *testing.T) {
+// waitForLeader ждет пока один из подов не успеет завладеть лидерством.
+func waitForLeader(t *testing.T, ctx context.Context, nodes ...*LeaderElector) {
+	_, err := backoff.Retry(ctx, func() (struct{}, error) {
+		for _, node := range nodes {
+			if node.isLeader.Load() {
+				return struct{}{}, nil
+			}
+		}
+		return struct{}{}, errors.New("node could not acquire leadership in a given period")
+	}, backoff.WithMaxElapsedTime(5*time.Second))
+	require.NoError(t, err)
+}
+
+// Happy Path. Redis не падает. Изначально выбранный лидер остается.
+func TestLeaderElection_StableCluster(t *testing.T) {
+	// Arrange.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
-	assert.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
+	require.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
 
 	containerID, err := setupRedisContainer(cli)
-	assert.NoError(t, err)
-
-	rdb, err := connectToRedis()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() {
-		assert.NoError(t, rdb.Close())
+		require.NoError(t, container.RemoveContainer(cli, containerID), "Failed to remove container: %v", err)
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	rdb, err := connectToRedis()
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rdb.Close()) }()
+
 	leaderKey := defaultLeaderKey + uuid.NewString()
 	leResults := make(chan LeaderElectionResult, 64)
 
-	// Создаем leader узел.
-	const leaderNodeID = "node-leader"
-	config := &Config{
-		LockKey:         leaderKey,
-		NodeID:          leaderNodeID,
-		LeaderTTL:       10 * time.Second,
-		ElectionTimeout: 5 * time.Second,
-		RenewalPeriod:   2 * time.Second,
-	}
-	callbacks := createCallbacks(ctx, leResults, config.NodeID)
-	leaderLE := NewLeaderElector(config, callbacks, rdb)
-	go leaderLE.Run(ctx)
+	// Act.
+	node1LE := runLeaderElector(ctx, leaderKey, NodeID1, leResults, rdb)
+	node2LE := runLeaderElector(ctx, leaderKey, NodeID2, leResults, rdb)
 
-	// Ждем, чтобы успеть завладеть лидерством.
-	_, err = backoff.Retry(ctx, func() (struct{}, error) {
-		if leaderLE.isLeader.Load() {
-			return struct{}{}, nil
-		}
-		return struct{}{}, errors.New("node could not acquire leadership in a given period")
-	}, backoff.WithMaxElapsedTime(5*time.Second))
-	assert.NoError(t, err)
+	// Ждем, чтобы убедиться, что лидер не поменялся.
+	time.Sleep(leaderTTL + renewalPeriod)
 
-	// Создаем follower узел.
-	const followerNodeID = "node-follower"
-	config = &Config{
-		LockKey:         leaderKey,
-		NodeID:          followerNodeID,
-		LeaderTTL:       10 * time.Second,
-		ElectionTimeout: 5 * time.Second,
-		RenewalPeriod:   2 * time.Second,
-	}
-	callbacks = createCallbacks(ctx, leResults, config.NodeID)
-	followerLE := NewLeaderElector(config, callbacks, rdb)
-	go followerLE.Run(ctx)
-
-	assert.NoError(t, container.StopContainer(cli, containerID), "Failed to remove container: %v", err)
-
-	const renewTimeout = 2 * time.Second
-	time.Sleep(renewTimeout)
-	containerID, err = container.Start(ctx, cli, containerID)
-	defer assert.NoError(t, err, "Failed to remove container: %v", err)
-	time.Sleep(10 * time.Second)
-	// Проверяем результаты работы LeaderElector.
+	// Останавливаем работу узлов.
 	cancel()
 	close(leResults)
 
-	results := make([]LeaderElectionResult, 0, 2)
+	// Assert.
+	results := make([]LeaderElectionResult, 0)
 	for result := range leResults {
 		results = append(results, result)
 		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
 	}
 
-	for _, result := range results {
-		if result.NodeID == leaderNodeID {
-			assert.True(t, result.IsLeader)
-		} else if result.NodeID == followerNodeID {
-			assert.False(t, result.IsLeader)
-		}
-	}
-
-	assert.True(t, leaderLE.isLeader.Load())
-	assert.False(t, followerLE.isLeader.Load())
+	require.Equal(t, 1, len(results))
+	require.NotEqual(t, node1LE.isLeader.Load(), node2LE.isLeader.Load())
 }
 
-// Запущен лидер и ведомый узлы. Редис выходит из строя на electionTimeout. Лидерство теряется, потом возвращается лидером.
-func TestRedisClusterContainer3(t *testing.T) {
-	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
-	assert.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
+//func testLeaderElectionWithRedisFailure(t *testing.T, outageDuration time.Duration) {
+//	ctx, cancel := context.WithCancel(context.Background())
+//	defer cancel()
+//
+//	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
+//	require.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
+//
+//	containerID, err := setupRedisContainer(cli)
+//	require.NoError(t, err)
+//
+//	rdb, err := connectToRedis()
+//	require.NoError(t, err)
+//	defer require.NoError(t, rdb.Close())
+//
+//	leaderKey := defaultLeaderKey + uuid.NewString()
+//	leResults := make(chan LeaderElectionResult, 64)
+//
+//	createLeaderElector(ctx, leaderKey, "node-leader", leResults, rdb)
+//	createLeaderElector(ctx, leaderKey, "node-follower", leResults, rdb)
+//
+//	require.NoError(t, container.StopContainer(cli, containerID), "Failed to stop Redis container")
+//	time.Sleep(outageDuration)
+//
+//	require.NoError(t, container.Start(ctx, cli, containerID), "Failed to start container: %v", err)
+//	require.NoError(t, err, "Failed to start Redis container")
+//	time.Sleep(5 * time.Second)
+//
+//	//verifyLeaderElection(t, leResults, "node-leader", "node-follower")
+//}
 
-	containerID, err := setupRedisContainer(cli)
-	assert.NoError(t, err)
+const (
+	NodeID1 = "node-1"
+	NodeID2 = "node-2"
 
-	rdb, err := connectToRedis()
-	assert.NoError(t, err)
-	defer func() {
-		assert.NoError(t, rdb.Close())
-	}()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	leaderKey := defaultLeaderKey + uuid.NewString()
-	leResults := make(chan LeaderElectionResult, 64)
-
-	// Создаем leader узел.
-	const leaderNodeID = "node-leader"
-	config := &Config{
-		LockKey:         leaderKey,
-		NodeID:          leaderNodeID,
-		LeaderTTL:       10 * time.Second,
-		ElectionTimeout: 5 * time.Second,
-		RenewalPeriod:   2 * time.Second,
-	}
-	callbacks := createCallbacks(ctx, leResults, config.NodeID)
-	leaderLE := NewLeaderElector(config, callbacks, rdb)
-	go leaderLE.Run(ctx)
-
-	// Ждем, чтобы успеть завладеть лидерством.
-	_, err = backoff.Retry(ctx, func() (struct{}, error) {
-		if leaderLE.isLeader.Load() {
-			return struct{}{}, nil
-		}
-		return struct{}{}, errors.New("node could not acquire leadership in a given period")
-	}, backoff.WithMaxElapsedTime(5*time.Second))
-	assert.NoError(t, err)
-
-	// Создаем follower узел.
-	const followerNodeID = "node-follower"
-	config = &Config{
-		LockKey:         leaderKey,
-		NodeID:          followerNodeID,
-		LeaderTTL:       10 * time.Second,
-		ElectionTimeout: 5 * time.Second,
-		RenewalPeriod:   2 * time.Second,
-	}
-	callbacks = createCallbacks(ctx, leResults, config.NodeID)
-	followerLE := NewLeaderElector(config, callbacks, rdb)
-	go followerLE.Run(ctx)
-
-	assert.NoError(t, container.StopContainer(cli, containerID), "Failed to remove container: %v", err)
-
-	const electionTimeout = 5 * time.Second
-	time.Sleep(electionTimeout)
-	// Запускаем Redis обратно
-	containerID, err = container.Start(ctx, cli, containerID)
-	defer assert.NoError(t, err, "Failed to start container: %v", err)
-	time.Sleep(5 * time.Second)
-
-	// Проверяем результаты работы LeaderElector.
-	cancel()
-	close(leResults)
-
-	results := make([]LeaderElectionResult, 0, 2)
-	for result := range leResults {
-		results = append(results, result)
-		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
-	}
-
-	/*
-		Всего должно быть 3 события:
-		1) leaderNode получил лидерство
-		2) leaderNode потерял лидерство
-		3) leaderNode возвращает лидерство, т.к. после возвращения Redis'а у него остается еще leaderTTL - electionTimeout времени.
-	*/
-	assert.Equal(t, 3, len(results))
-
-	assert.Equal(t, leaderNodeID, results[0].NodeID)
-	assert.True(t, results[0].IsLeader)
-
-	assert.Equal(t, leaderNodeID, results[1].NodeID)
-	assert.False(t, results[1].IsLeader)
-
-	assert.Equal(t, leaderNodeID, results[2].NodeID)
-	assert.True(t, results[2].IsLeader)
-}
-
-// Запущен лидер и ведомый узлы. Редис выходит из строя на leaderTTL. Лидерство теряется, потом кто-то становится лидером.
-func TestRedisClusterContainer4(t *testing.T) {
-	cli, err := client.NewClientWithOpts(client.WithVersion("1.41"))
-	assert.NoError(t, err, "Ошибка при создании Docker клиента: %v", err)
-
-	containerID, err := setupRedisContainer(cli)
-	assert.NoError(t, err)
-
-	rdb, err := connectToRedis()
-	assert.NoError(t, err)
-	defer func() {
-		assert.NoError(t, rdb.Close())
-	}()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	leaderKey := defaultLeaderKey + uuid.NewString()
-	leResults := make(chan LeaderElectionResult, 64)
-
-	// Создаем leader узел.
-	const leaderNodeID = "node-leader"
-	config := &Config{
-		LockKey:         leaderKey,
-		NodeID:          leaderNodeID,
-		LeaderTTL:       5*time.Second + time.Nanosecond,
-		ElectionTimeout: 5 * time.Second,
-		RenewalPeriod:   2 * time.Second,
-	}
-	callbacks := createCallbacks(ctx, leResults, config.NodeID)
-	leaderLE := NewLeaderElector(config, callbacks, rdb)
-	go leaderLE.Run(ctx)
-
-	// Ждем, чтобы успеть завладеть лидерством.
-	_, err = backoff.Retry(ctx, func() (struct{}, error) {
-		if leaderLE.isLeader.Load() {
-			return struct{}{}, nil
-		}
-		return struct{}{}, errors.New("node could not acquire leadership in a given period")
-	}, backoff.WithMaxElapsedTime(5*time.Second))
-	assert.NoError(t, err)
-
-	// Создаем follower узел.
-	const followerNodeID = "node-follower"
-	config = &Config{
-		LockKey:         leaderKey,
-		NodeID:          followerNodeID,
-		LeaderTTL:       5*time.Second + time.Nanosecond,
-		ElectionTimeout: 5 * time.Second,
-		RenewalPeriod:   2 * time.Second,
-	}
-	callbacks = createCallbacks(ctx, leResults, config.NodeID)
-	followerLE := NewLeaderElector(config, callbacks, rdb)
-	go followerLE.Run(ctx)
-
-	assert.NoError(t, container.StopContainer(cli, containerID), "Failed to remove container: %v", err)
-
-	const leaderTTL = 5 * time.Second
-	time.Sleep(leaderTTL)
-	// Запускаем Redis обратно
-	containerID, err = container.Start(ctx, cli, containerID)
-	defer assert.NoError(t, err, "Failed to start container: %v", err)
-	time.Sleep(5 * time.Second)
-
-	// Проверяем результаты работы LeaderElector.
-	cancel()
-	close(leResults)
-
-	results := make([]LeaderElectionResult, 0, 2)
-	for result := range leResults {
-		results = append(results, result)
-		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
-	}
-
-	/*
-		Всего должно быть 3 события:
-		1) leaderNode получил лидерство
-		2) leaderNode потерял лидерство
-		3) leaderNode или followerNode получил лидерство (кто первый успел, поэтому порядок не детерминирован)
-	*/
-	assert.Equal(t, 3, len(results))
-
-	assert.Equal(t, leaderNodeID, results[0].NodeID)
-	assert.True(t, results[0].IsLeader)
-
-	assert.Equal(t, leaderNodeID, results[1].NodeID)
-	assert.False(t, results[1].IsLeader)
-
-	assert.True(t, results[2].IsLeader)
-}
-
-/*
-Сценарии:
-* У нас есть лидер и фолловер.
-* Redis не выходит из строя => ничего не меняется
-* Redis выходит из строя на интервал < renewInterval => ничего не меняется
-* Redis выходит из строя на интервал < election timeout => лидер теряет лидерство и возвращает его
-* Redis выходит из строя на интервал < leader ttl => лидер теряет лидерство, кто-то становится лидером
-*/
+	leaderTTL       = 10 * time.Second
+	electionTimeout = 5 * time.Second
+	renewalPeriod   = 2 * time.Second
+)
