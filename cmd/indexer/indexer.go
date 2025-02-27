@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-
 	"github.com/allisson/go-env"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
@@ -16,6 +11,10 @@ import (
 	"github.com/urfave/cli/v2"
 	"github.com/xssnick/tonutils-go/liteclient"
 	"github.com/xssnick/tonutils-go/ton"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/tonindexer/anton/abi"
 	contractDesc "github.com/tonindexer/anton/cmd/contract"
@@ -189,9 +188,14 @@ var Command = &cli.Command{
 			FromBlock: uint32(env.GetInt32("FROM_BLOCK", 1)),
 			Workers:   env.GetInt("WORKERS", 4),
 		})
-		if err = i.Start(); err != nil {
+
+		if err = i.StartWithLeaderElection(ctx.Context); err != nil {
 			return err
 		}
+
+		/*if err = i.Start(); err != nil {
+			return err
+		}*/
 
 		c := make(chan os.Signal, 1)
 		done := make(chan struct{}, 1)

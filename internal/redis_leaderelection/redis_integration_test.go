@@ -3,6 +3,7 @@ package leaderelection
 import (
 	"context"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -70,7 +71,7 @@ func setupRedisContainer(cli *client.Client) (string, error) {
 func connectToRedis() (*redis.Client, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
-		Password: "", // Пароль, если требуется.
+		Password: "",
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -207,7 +208,7 @@ func TestLeaderElection_RedisDown(t *testing.T) {
 			downtime: DefaultElectionTimeout,
 			assertResults: func(results []LeaderElectionResult) {
 				for _, result := range results {
-					fmt.Printf("%v - %v \n", result.NodeID, result.IsLeader)
+					log.Info().Msgf("%v - %v \n", result.NodeID, result.IsLeader)
 				}
 				require.Equal(t, 3, len(results))
 
@@ -289,7 +290,7 @@ func TestLeaderElection_StableCluster(t *testing.T) {
 	results := make([]LeaderElectionResult, 0)
 	for result := range leResults {
 		results = append(results, result)
-		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
+		log.Info().Msgf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
 	}
 
 	require.Equal(t, 1, len(results))
