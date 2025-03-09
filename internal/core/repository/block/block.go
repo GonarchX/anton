@@ -5,11 +5,10 @@ import (
 	"database/sql"
 
 	"github.com/pkg/errors"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/go-clickhouse/ch"
-
 	"github.com/tonindexer/anton/internal/core"
 	"github.com/tonindexer/anton/internal/core/repository"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/go-clickhouse/ch"
 )
 
 var _ repository.Block = (*Repository)(nil)

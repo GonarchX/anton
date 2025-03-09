@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/xssnick/tonutils-go/ton"
 
 	"github.com/tonindexer/anton/internal/core"
@@ -25,7 +23,7 @@ func TimeTrack(start time.Time, fun string, args ...any) {
 	if elapsed < 0.1 {
 		return
 	}
-	log.Debug().Str("func", fmt.Sprintf(fun, args...)).Float64("elapsed", elapsed).Msg("timer")
+	//log.Debug().Str("func", fmt.Sprintf(fun, args...)).Float64("elapsed", elapsed).Msg("timer")
 }
 
 type FetcherService interface {

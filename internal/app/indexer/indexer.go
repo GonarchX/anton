@@ -6,6 +6,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/allisson/go-env"
@@ -72,35 +73,35 @@ func (s *Service) running() bool {
 }
 
 func (s *Service) Start() error {
-	ctx := context.Background()
+	/*	ctx := context.Background()
 
-	fromBlock := s.FromBlock
+		fromBlock := s.FromBlock
 
-	lastMaster, err := s.blockRepo.GetLastMasterBlock(ctx)
-	switch {
-	case err == nil:
-		fromBlock = lastMaster.SeqNo + 1
-	case !errors.Is(err, core.ErrNotFound):
-		return errors.Wrap(err, "cannot get last masterchain block")
-	}
+		lastMaster, err := s.blockRepo.GetLastMasterBlock(ctx)
+		switch {
+		case err == nil:
+			fromBlock = lastMaster.SeqNo + 1
+		case !errors.Is(err, core.ErrNotFound):
+			return errors.Wrap(err, "cannot get last masterchain block")
+		}
 
-	s.mx.Lock()
-	s.run = true
-	s.mx.Unlock()
+		s.mx.Lock()
+		s.run = true
+		s.mx.Unlock()
 
-	blocksChan := make(chan *core.Block, s.Workers*2)
+		blocksChan := make(chan *core.Block, s.Workers*2)
 
-	s.wg.Add(1)
-	go s.fetchMasterLoop(fromBlock, blocksChan)
+		s.wg.Add(1)
+		go s.fetchMasterLoop(fromBlock, blocksChan)
 
-	s.wg.Add(1)
-	go s.saveBlocksLoop(blocksChan)
+		s.wg.Add(1)
+		go s.saveBlocksLoop(blocksChan)
 
-	log.Info().
-		Uint32("from_block", fromBlock).
-		Int("workers", s.Workers).
-		Msg("started")
-
+		log.Info().
+			Uint32("from_block", fromBlock).
+			Int("workers", s.Workers).
+			Msg("started")
+	*/
 	return nil
 }
 
@@ -127,7 +128,7 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 			}, backoff.WithBackOff(b), backoff.WithMaxElapsedTime(1*time.Minute))
 			if err != nil {
 				log.Error().Msgf("failed to get last masterchain block: %v", err)
-				return
+				panic(err) // TODO: добавить сюда не просто выход, а отказ от лидерства
 			}
 
 			produceCtx, produceCancel = context.WithCancel(ctx)
@@ -136,11 +137,11 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 			log.Info().
 				Uint32("from_block", fromBlock).
 				Int("workers", s.Workers).
-				Msg("started")
+				Msg("start leading")
 		},
 		OnStopLeading: func() {
 			produceCancel()
-			log.Info().Msg("stop producing block ids")
+			log.Info().Msg("stop leading")
 		},
 	}
 
@@ -159,43 +160,80 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 }
 
 func ProduceBlockIdsLoop(ctx context.Context, s *Service, fromBlock uint32) {
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
+	masterSeq := atomic.Uint32{}
+	masterSeq.Store(fromBlock)
 
-	for {
-		// TODO: УБРАТЬ!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-		time.Sleep(1 * time.Second)
-		// Получаем блоки, которые находятся между текущим и предыдущим стейтом MasterChain.
-		master, shardPtrs, err := s.getUnseenBlocks(ctx, fromBlock)
-		if err != nil {
-			log.Error().Err(err).Uint32("master_seq", fromBlock).Msg("failed to get unseen blocks")
-			continue
-		}
-
-		shards := make([]ton.BlockIDExt, 0, len(shardPtrs))
-		for _, shardPtr := range shardPtrs {
-			shards = append(shards, *shardPtr)
-		}
-		blockInfo := kafka.UnseenBlockInfo{
-			Master: *master,
-			Shards: shards,
-		}
-
-		// Сериализуем полученные данные.
-		err = enc.Encode(blockInfo)
-		if err != nil {
-			log.Error().Err(err).Uint32("master_seq", fromBlock).Msg("failed to encode blocks")
-			continue
-		}
-
-		// Отправляем в Kafka.
-		record := &kgo.Record{Topic: kafka.UnseenBlocksTopic, Key: []byte(fmt.Sprintf("%v", fromBlock)), Value: buf.Bytes()}
-		if err := s.UnseenBlocksTopicClient.ProduceSync(ctx, record).FirstErr(); err != nil {
-			log.Error().Msgf("record had a produce error while synchronously producing: %v\n", err)
-			continue
-		}
-		log.Debug().Msg(fmt.Sprintf("produce block with master_seq: %d", fromBlock))
+	blockIds := make(chan uint32, s.Workers)
+	for range s.Workers {
+		masterSeq.Add(1)
+		blockIds <- masterSeq.Load()
 	}
+	// Создаем и запускаем воркеров
+	for range s.Workers {
+		go func() {
+			buf := new(bytes.Buffer)
+			enc := gob.NewEncoder(buf)
+			worker := LeaderWorker{
+				buf: buf,
+				enc: enc,
+				s:   s,
+			}
+
+			for ctx.Err() == nil {
+				for id := range blockIds {
+					err := worker.ProcessBlockId(ctx, id)
+					if err != nil {
+						// Если падаем с ошибкой, то еще раз пытаемся обработать блок
+						blockIds <- id
+					} else {
+						// Иначе переходим к следующему
+						masterSeq.Add(1)
+						blockIds <- masterSeq.Load()
+					}
+				}
+			}
+		}()
+	}
+}
+
+type LeaderWorker struct {
+	buf *bytes.Buffer
+	enc *gob.Encoder
+	s   *Service
+}
+
+func (l *LeaderWorker) ProcessBlockId(ctx context.Context, blockId uint32) error {
+	// Получаем блоки, которые находятся между текущим и предыдущим стейтом MasterChain.
+	master, shardPtrs, err := l.s.getUnseenBlocks(ctx, blockId)
+	if err != nil {
+		log.Error().Err(err).Uint32("master_seq", blockId).Msg("failed to get unseen blocks")
+		return err
+	}
+
+	shards := make([]ton.BlockIDExt, 0, len(shardPtrs))
+	for _, shardPtr := range shardPtrs {
+		shards = append(shards, *shardPtr)
+	}
+	blockInfo := kafka.UnseenBlockInfo{
+		Master: *master,
+		Shards: shards,
+	}
+
+	// Сериализуем полученные данные.
+	err = l.enc.Encode(blockInfo)
+	if err != nil {
+		log.Error().Err(err).Uint32("master_seq", blockId).Msg("failed to encode blocks")
+		return err
+	}
+
+	// Отправляем в Kafka.
+	record := &kgo.Record{Topic: kafka.UnseenBlocksTopic, Key: []byte(fmt.Sprintf("%v", blockId)), Value: l.buf.Bytes()}
+	if err = l.s.UnseenBlocksTopicClient.ProduceSync(ctx, record).FirstErr(); err != nil {
+		log.Error().Msgf("record had a produce error while synchronously producing: %v\n", err)
+		return err
+	}
+	log.Debug().Msg(fmt.Sprintf("produce block with master_seq: %d", blockId))
+	return nil
 }
 
 // ConsumeBlockIdsLoop получает блоки от лидера и сохраняет их в базу данных

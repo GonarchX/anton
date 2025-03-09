@@ -118,7 +118,7 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 		l.logger.Debug().Msg("Failed to own leadership")
 		// Если под был лидером, но не смог захватить блокировку, тогда лишаемся статус лидера.
 		if l.isLeader.Load() {
-			l.logger.Debug().Msg("Lose leadership: failed to renew lock")
+			l.logger.Error().Msg("Lose leadership: failed to renew lock")
 			l.loseLeadership()
 		}
 		return
@@ -126,7 +126,7 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 
 	// Успешно захватили лидерство на follower поде.
 	if !l.isLeader.Load() {
-		l.logger.Debug().Msg("Own leadership")
+		l.logger.Info().Msg("Own leadership")
 		l.ownLeadership()
 	}
 
