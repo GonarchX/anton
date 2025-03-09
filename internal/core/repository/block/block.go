@@ -72,7 +72,12 @@ func (r *Repository) AddBlocks(ctx context.Context, tx bun.Tx, info []*core.Bloc
 		return nil
 	}
 	for _, b := range info {
-		_, err := tx.NewInsert().Model(b).Exec(ctx)
+		_, err := tx.NewInsert().
+			On("CONFLICT (file_hash) DO UPDATE").
+			On("CONFLICT (workchain,shard,seq_no) DO UPDATE").
+			On("CONFLICT (root_hash) DO UPDATE").
+			Model(b).
+			Exec(ctx)
 		if err != nil {
 			return err
 		}

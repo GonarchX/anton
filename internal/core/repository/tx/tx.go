@@ -105,7 +105,11 @@ func (r *Repository) AddTransactions(ctx context.Context, tx bun.Tx, transaction
 		return nil
 	}
 
-	_, err := tx.NewInsert().Model(&transactions).Exec(ctx)
+	_, err := tx.NewInsert().
+		On("CONFLICT (address,created_lt) DO UPDATE").
+		On("CONFLICT (hash) DO UPDATE").
+		Model(&transactions).
+		Exec(ctx)
 	if err != nil {
 		return err
 	}
