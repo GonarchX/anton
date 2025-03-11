@@ -3,9 +3,11 @@ package leaderelection
 import (
 	"context"
 	"errors"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	redisutils "github.com/tonindexer/anton/redis"
 	"sync/atomic"
 	"time"
 )
@@ -151,4 +153,26 @@ func (l *LeaderElector) ownLeadership() {
 func (l *LeaderElector) loseLeadership() {
 	l.isLeader.Store(false)
 	l.callbacks.OnStopLeading()
+}
+
+// Run запускает механизм выбора лидера в отдельной горутине со стандартными настройками.
+func Run(ctx context.Context, callbacks LeaderCallbacks) error {
+	rdb, err := redisutils.New(ctx)
+	if err != nil {
+		return err
+	}
+
+	nodeID := "Node_" + uuid.NewString()
+	config := &Config{
+		LockKey:         DefaultLeaderKey,
+		NodeID:          nodeID,
+		LeaderTTL:       DefaultLeaderTTL,
+		ElectionTimeout: DefaultElectionTimeout,
+		RenewalPeriod:   DefaultRenewalPeriod,
+	}
+
+	le := NewLeaderElector(config, callbacks, rdb)
+	go le.Run(ctx)
+
+	return nil
 }

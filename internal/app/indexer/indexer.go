@@ -9,11 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/allisson/go-env"
 	"github.com/cenkalti/backoff/v5"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 	"github.com/tonindexer/anton/internal/app"
 	"github.com/tonindexer/anton/internal/app/indexer/kafka"
@@ -30,18 +27,25 @@ import (
 
 var _ app.IndexerService = (*Service)(nil)
 
-type Service struct {
-	*app.IndexerConfig
+type (
+	Service struct {
+		*app.IndexerConfig
 
-	blockRepo   core.BlockRepository
-	txRepo      core.TransactionRepository
-	msgRepo     repository.Message
-	accountRepo core.AccountRepository
+		blockRepo   core.BlockRepository
+		txRepo      core.TransactionRepository
+		msgRepo     repository.Message
+		accountRepo core.AccountRepository
 
-	run bool
-	mx  sync.RWMutex
-	wg  sync.WaitGroup
-}
+		run bool
+		mx  sync.RWMutex
+		wg  sync.WaitGroup
+	}
+
+	blockProcessor struct {
+		buf *bytes.Buffer
+		s   *Service
+	}
+)
 
 func NewService(cfg *app.IndexerConfig) *Service {
 	var s = new(Service)
@@ -73,34 +77,34 @@ func (s *Service) running() bool {
 }
 
 func (s *Service) Start() error {
-	/*	ctx := context.Background()
+	/*ctx := context.Background()
 
-		fromBlock := s.FromBlock
+	fromBlock := s.FromBlock
 
-		lastMaster, err := s.blockRepo.GetLastMasterBlock(ctx)
-		switch {
-		case err == nil:
-			fromBlock = lastMaster.SeqNo + 1
-		case !errors.Is(err, core.ErrNotFound):
-			return errors.Wrap(err, "cannot get last masterchain block")
-		}
+	lastMaster, err := s.blockRepo.GetLastMasterBlock(ctx)
+	switch {
+	case err == nil:
+		fromBlock = lastMaster.SeqNo + 1
+	case !errors.Is(err, core.ErrNotFound):
+		return errors.Wrap(err, "cannot get last masterchain block")
+	}
 
-		s.mx.Lock()
-		s.run = true
-		s.mx.Unlock()
+	s.mx.Lock()
+	s.run = true
+	s.mx.Unlock()
 
-		blocksChan := make(chan *core.Block, s.Workers*2)
+	blocksChan := make(chan *core.Block, s.Workers*2)
 
-		s.wg.Add(1)
-		go s.fetchMasterLoop(fromBlock, blocksChan)
+	s.wg.Add(1)
+	go s.fetchMasterLoop(fromBlock, blocksChan)
 
-		s.wg.Add(1)
-		go s.saveBlocksLoop(blocksChan)
+	s.wg.Add(1)
+	go s.saveBlocksLoop(blocksChan)
 
-		log.Info().
-			Uint32("from_block", fromBlock).
-			Int("workers", s.Workers).
-			Msg("started")
+	log.Info().
+		Uint32("from_block", fromBlock).
+		Int("workers", s.Workers).
+		Msg("started")
 	*/
 	return nil
 }
@@ -128,7 +132,7 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 			}, backoff.WithBackOff(b), backoff.WithMaxElapsedTime(1*time.Minute))
 			if err != nil {
 				log.Error().Msgf("failed to get last masterchain block: %v", err)
-				panic(err) // TODO: добавить сюда не просто выход, а отказ от лидерства
+				panic(err) // TODO: отставить панику, добавить отказ от лидерства
 			}
 
 			produceCtx, produceCancel = context.WithCancel(ctx)
@@ -145,12 +149,17 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 		},
 	}
 
-	err := runLeaderElector(ctx, callbacks)
+	err := leaderelection.Run(ctx, callbacks)
 	if err != nil {
 		return err
 	}
 
-	go ConsumeBlockIdsLoop(ctx, s)
+	buf := new(bytes.Buffer)
+	p := blockProcessor{
+		buf: buf,
+		s:   s,
+	}
+	go p.ConsumeBlockIdsLoop(ctx)
 
 	s.mx.Lock()
 	s.run = true
@@ -172,16 +181,13 @@ func ProduceBlockIdsLoop(ctx context.Context, s *Service, fromBlock uint32) {
 	for range s.Workers {
 		go func() {
 			buf := new(bytes.Buffer)
-			enc := gob.NewEncoder(buf)
-			worker := LeaderWorker{
+			p := blockProcessor{
 				buf: buf,
-				enc: enc,
 				s:   s,
 			}
-
 			for ctx.Err() == nil {
 				for id := range blockIds {
-					err := worker.ProcessBlockId(ctx, id)
+					err := p.ProcessBlockId(ctx, id)
 					if err != nil {
 						// Если падаем с ошибкой, то еще раз пытаемся обработать блок
 						blockIds <- id
@@ -196,15 +202,9 @@ func ProduceBlockIdsLoop(ctx context.Context, s *Service, fromBlock uint32) {
 	}
 }
 
-type LeaderWorker struct {
-	buf *bytes.Buffer
-	enc *gob.Encoder
-	s   *Service
-}
-
-func (l *LeaderWorker) ProcessBlockId(ctx context.Context, blockId uint32) error {
+func (p *blockProcessor) ProcessBlockId(ctx context.Context, blockId uint32) error {
 	// Получаем блоки, которые находятся между текущим и предыдущим стейтом MasterChain.
-	master, shardPtrs, err := l.s.getUnseenBlocks(ctx, blockId)
+	master, shardPtrs, err := p.s.getUnseenBlocks(ctx, blockId)
 	if err != nil {
 		log.Error().Err(err).Uint32("master_seq", blockId).Msg("failed to get unseen blocks")
 		return err
@@ -220,33 +220,30 @@ func (l *LeaderWorker) ProcessBlockId(ctx context.Context, blockId uint32) error
 	}
 
 	// Сериализуем полученные данные.
-	err = l.enc.Encode(blockInfo)
+	p.buf.Reset()
+	err = gob.NewEncoder(p.buf).Encode(blockInfo)
 	if err != nil {
 		log.Error().Err(err).Uint32("master_seq", blockId).Msg("failed to encode blocks")
 		return err
 	}
 
 	// Отправляем в Kafka.
-	record := &kgo.Record{Topic: kafka.UnseenBlocksTopic, Key: []byte(fmt.Sprintf("%v", blockId)), Value: l.buf.Bytes()}
-	if err = l.s.UnseenBlocksTopicClient.ProduceSync(ctx, record).FirstErr(); err != nil {
+	record := &kgo.Record{Topic: kafka.UnseenBlocksTopic, Key: []byte(fmt.Sprintf("%v", blockId)), Value: p.buf.Bytes()}
+	if err = p.s.UnseenBlocksTopicClient.ProduceSync(ctx, record).FirstErr(); err != nil {
 		log.Error().Msgf("record had a produce error while synchronously producing: %v\n", err)
 		return err
 	}
-	log.Debug().Msg(fmt.Sprintf("produce block with master_seq: %d", blockId))
+	log.Debug().Msg(fmt.Sprintf("produce block with master_seq: %d", blockInfo.Master.SeqNo))
 	return nil
 }
 
 // ConsumeBlockIdsLoop получает блоки от лидера и сохраняет их в базу данных
 // Note: при попытке сохранить уже обработанные блоки мы просто выполним Upsert, перезаписав существующие данные
-func ConsumeBlockIdsLoop(ctx context.Context, s *Service) {
-	blocksChan := make(chan *core.Block)
-	go s.saveBlocksLoop(blocksChan)
-	defer close(blocksChan)
-
+func (p *blockProcessor) ConsumeBlockIdsLoop(ctx context.Context) {
 pollAgain:
 	for {
 		pollFetches := func() (kgo.Fetches, error) {
-			fetches := s.UnseenBlocksTopicClient.PollFetches(ctx)
+			fetches := p.s.UnseenBlocksTopicClient.PollFetches(ctx)
 			if errs := fetches.Errors(); len(errs) > 0 {
 				return fetches, fetches.Err()
 			}
@@ -262,12 +259,10 @@ pollAgain:
 		iter := fetches.RecordIter()
 		for !iter.Done() {
 			record := iter.Next()
-
-			// Десериализуем запись.
+			p.buf.Reset()
+			p.buf.Write(record.Value)
 			var blockInfo kafka.UnseenBlockInfo
-			buf := bytes.NewBuffer(record.Value)
-			dec := gob.NewDecoder(buf)
-			err := dec.Decode(&blockInfo)
+			err = gob.NewDecoder(p.buf).Decode(&blockInfo) // TODO: мб перейти на proto, чтобы не только go приложение могло парсить блоки.
 			if err != nil {
 				log.Error().Msgf("failed to decode block info: %v\n", err)
 				goto pollAgain
@@ -281,24 +276,20 @@ pollAgain:
 			}
 
 			// Получаем все транзакции блока.
-			txs, err := s.getBlockTxs(ctx, &blockInfo.Master, shardsPtrs)
+			txs, err := p.s.getBlockTxs(ctx, &blockInfo.Master, shardsPtrs)
 			if err != nil {
 				log.Error().Msgf("failed to get block transactions: %v\n", err)
 				goto pollAgain
 			}
 
 			// Сохраняем в бд.
-			select {
-			case <-ctx.Done():
-				return
-			case blocksChan <- txs:
-			}
+			p.s.saveBlock(ctx, txs)
 		}
 
-		err = s.UnseenBlocksTopicClient.CommitRecords(ctx, fetches.Records()...)
+		err = p.s.UnseenBlocksTopicClient.CommitRecords(ctx, fetches.Records()...)
 		if err != nil {
 			log.Error().Msgf("failed to commit records: %v\n", err)
-			continue
+			goto pollAgain
 		}
 	}
 }
@@ -309,45 +300,4 @@ func (s *Service) Stop() {
 	s.mx.Unlock()
 
 	s.wg.Wait()
-}
-
-func runLeaderElector(ctx context.Context, callbacks leaderelection.LeaderCallbacks) error {
-	rdb, err := connectToRedis(ctx)
-	if err != nil {
-		return err
-	}
-
-	nodeID := "Node_" + uuid.NewString()
-	config := &leaderelection.Config{
-		LockKey:         leaderelection.DefaultLeaderKey,
-		NodeID:          nodeID,
-		LeaderTTL:       leaderelection.DefaultLeaderTTL,
-		ElectionTimeout: leaderelection.DefaultElectionTimeout,
-		RenewalPeriod:   leaderelection.DefaultRenewalPeriod,
-	}
-
-	le := leaderelection.NewLeaderElector(config, callbacks, rdb)
-	go le.Run(ctx)
-
-	return nil
-}
-
-func connectToRedis(ctx context.Context) (*redis.Client, error) {
-	addr := env.GetString("REDIS_ADDRESS", "")
-	pass := env.GetString("REDIS_PASSWORD", "")
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: pass,
-	})
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	_, err := rdb.Ping(ctx).Result()
-	if err != nil {
-		return nil, fmt.Errorf("couldn't connect to Redis: %w", err)
-	}
-
-	return rdb, nil
 }
