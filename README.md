@@ -1,6 +1,6 @@
 # Anton
 
-This project is an open-source tool that extracts and organizes data from the TON blockchain, 
+This project is an open-source tool that extracts and organizes data from the TON blockchain,
 efficiently storing it in PostgreSQL and ClickHouse databases.
 
 If you have any questions, you can ask them in the [Telegram group](https://t.me/tonindexer_chat).
@@ -12,25 +12,37 @@ Before you start, take a look at the [official docs](https://ton.org/docs/learn/
 Consider an arbitrary contract.
 It has a state that is updated with any transaction on the contract's account.
 Each state has the contract code and data.
-The contract data can be complex, but developers typically provide [get-methods](https://ton.org/docs/develop/func/functions#specifiers) in the contract, which can be executed to retrieve the necessary data.
-The TON has standard contracts (such as [TEP-62](https://github.com/ton-blockchain/TEPs/blob/master/text/0062-nft-standard.md), [TEP-74](https://github.com/ton-blockchain/TEPs/blob/master/text/0074-jettons-standard.md)), and they have predefined get-method names. 
-Therefore, you can attempt to match accounts found in the network to these standards by checking the presence of the get-methods.
-Contract standards also specify [TL-B constructor tags](https://docs.ton.org/develop/data-formats/tl-b-language#constructors) (or operation ids) for each acceptable message to contract, defined as the first 32 bits of the parsed message payload cell.
-So you if you know standard of a given contract, you can determine the type of message to it (for example, NFT item transfer) by parsing the first 32 bits of message body. 
+The contract data can be complex, but developers typically
+provide [get-methods](https://ton.org/docs/develop/func/functions#specifiers) in the contract, which can be executed to
+retrieve the necessary data.
+The TON has standard contracts (such
+as [TEP-62](https://github.com/ton-blockchain/TEPs/blob/master/text/0062-nft-standard.md), [TEP-74](https://github.com/ton-blockchain/TEPs/blob/master/text/0074-jettons-standard.md)),
+and they have predefined get-method names.
+Therefore, you can attempt to match accounts found in the network to these standards by checking the presence of the
+get-methods.
+Contract standards also
+specify [TL-B constructor tags](https://docs.ton.org/develop/data-formats/tl-b-language#constructors) (or operation ids)
+for each acceptable message to contract, defined as the first 32 bits of the parsed message payload cell.
+So you if you know standard of a given contract, you can determine the type of message to it (for example, NFT item
+transfer) by parsing the first 32 bits of message body.
 
-Anton allows you to define the contract interface in just one JSON schema. 
-Format of every schema is described in detail in [abi/README.md](abi/README.md). 
+Anton allows you to define the contract interface in just one JSON schema.
+Format of every schema is described in detail in [abi/README.md](abi/README.md).
 Every schema comprises contract get-methods, as well as incoming and outgoing message schemas for the contract.
 Once contract interfaces are defined and stored in the database, Anton begins scanning new blocks on the network.
 The tool stores every account state, transaction, and message in the database.
-For get-methods without arguments in the contract interface, Anton emulates these methods and saves the returned values to the database. 
-When a message is sent to a known contract interface, Anton attempts to match the message to a known schema by comparing the parsed operation ID. 
+For get-methods without arguments in the contract interface, Anton emulates these methods and saves the returned values
+to the database.
+When a message is sent to a known contract interface, Anton attempts to match the message to a known schema by comparing
+the parsed operation ID.
 If the message is successfully parsed using the identified schema, Anton also stores the parsed data.
 
-To explore contract interfaces known to this project, visit the [abi/known](/abi/known) directory. 
-This will provide you with an understanding of the various contract interfaces already supported and serve as examples for adding your own.
+To explore contract interfaces known to this project, visit the [abi/known](/abi/known) directory.
+This will provide you with an understanding of the various contract interfaces already supported and serve as examples
+for adding your own.
 
-Currently, Anton offers a REST API for retrieving filtered and aggregated data from the databases. To see example queries, refer to the [API.md](/docs/API.md) file.
+Currently, Anton offers a REST API for retrieving filtered and aggregated data from the databases. To see example
+queries, refer to the [API.md](/docs/API.md) file.
 
 To explore how Anton stores data, visit the [migrations' directory](/migrations).
 
@@ -106,19 +118,22 @@ cp .env.example .env
 nano .env
 ```
 
-| Name                  | Description                        | Default | Example                                                            |
-|-----------------------|------------------------------------|---------|--------------------------------------------------------------------|
-| `DB_NAME`             | Database name                      |         | idx                                                                |
-| `DB_USERNAME`         | Database username                  |         | user                                                               |
-| `DB_PASSWORD`         | Database password                  |         | pass                                                               |
-| `DB_CH_URL`           | Clickhouse URL to connect to       |         | clickhouse://clickhouse:9000/db_name?sslmode=disable               |
-| `DB_PG_URL`           | PostgreSQL URL to connect to       |         | postgres://username:password@postgres:5432/db_name?sslmode=disable |
-| `FROM_BLOCK`          | Master chain seq_no to start from  | 1       | 23532000                                                           |
-| `WORKERS`             | Number of indexer workers          | 4       | 8                                                                  |
-| `RESCAN_WORKERS`      | Number of rescan workers           | 4       | 8                                                                  |
-| `RESCAN_SELECT_LIMIT` | Number of rows to fetch for rescan | 3000    | 1000                                                               |
-| `LITESERVERS`         | Lite servers to connect to         |         | 135.181.177.59:53312 aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=  |
-| `DEBUG_LOGS`          | Debug logs enabled                 | false   | true                                                               |
+| Name                  | Description                         | Default | Example                                                            |
+|-----------------------|-------------------------------------|---------|--------------------------------------------------------------------|
+| `DB_NAME`             | Database name                       |         | idx                                                                |
+| `DB_USERNAME`         | Database username                   |         | user                                                               |
+| `DB_PASSWORD`         | Database password                   |         | pass                                                               |
+| `DB_CH_URL`           | Clickhouse URL to connect to        |         | clickhouse://clickhouse:9000/db_name?sslmode=disable               |
+| `DB_PG_URL`           | PostgreSQL URL to connect to        |         | postgres://username:password@postgres:5432/db_name?sslmode=disable |
+| `FROM_BLOCK`          | Master chain seq_no to start from   | 1       | 23532000                                                           |
+| `WORKERS`             | Number of indexer workers           | 4       | 8                                                                  |
+| `RESCAN_WORKERS`      | Number of rescan workers            | 4       | 8                                                                  |
+| `RESCAN_SELECT_LIMIT` | Number of rows to fetch for rescan  | 3000    | 1000                                                               |
+| `LITESERVERS`         | Lite servers to connect to          |         | 135.181.177.59:53312 aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=  |
+| `DEBUG_LOGS`          | Debug logs enabled                  | false   | true                                                               |
+| `REDIS_ADDRESS`       | Redis address                       |         | localhost:6379                                                     |
+| `REDIS_PASSWORD`      | Redis password                      |         | pass                                                               |
+| `KAFKA_URL`           | List of Kafka brokers to connect to |         | localhost:9092;localhost:9093                                      |
 
 ### Building
 
@@ -137,15 +152,19 @@ docker compose pull
 
 ### Running
 
-We have several options for compose run via [override files](https://docs.docker.com/compose/extends/#multiple-compose-files):
+We have several options for compose run
+via [override files](https://docs.docker.com/compose/extends/#multiple-compose-files):
+
 * base (docker-compose.yml) - allows to run services with near default configuration;
 * dev (docker-compose.dev.yml) - allows to rebuild Anton image locally and exposes databases ports;
 * prod (docker-compose.prod.yml) - allows to configure and backup databases, requires at least 128GB RAM.
 
 You can combine it by your own. Also, there are optional [profiles](https://docs.docker.com/compose/profiles/):
+
 * migrate - runs optional migrations service.
 
 Take a look at the following run examples:
+
 ```shell
 # run base compose
 docker compose up -d
@@ -230,8 +249,8 @@ docker run tonindexer/anton archive [--testnet]
 
 ### Inserting contract interface
 
-To add interfaces, you need to provide Anton with a contract description. 
-It will select any interfaces not already present in the database, 
+To add interfaces, you need to provide Anton with a contract description.
+It will select any interfaces not already present in the database,
 insert them, and initiate rescan tasks for messages and account states.
 
 ```shell
@@ -243,9 +262,9 @@ docker compose exec web anton contract addInterfaces "/var/anton/known/tep81_dns
 
 ### Deleting contract interface
 
-To delete an interface, provide a contract description along with the specific contract name you wish to remove. 
-Anton will then delete the contract interface and its associated operations from the database 
-and initiate rescan tasks to remove all parsed data related to this interface from messages and account states.  
+To delete an interface, provide a contract description along with the specific contract name you wish to remove.
+Anton will then delete the contract interface and its associated operations from the database
+and initiate rescan tasks to remove all parsed data related to this interface from messages and account states.
 
 ```shell
 docker compose exec rescan sh -c "anton contract deleteInterface -c nft_item /var/anton/known/*.json"
@@ -253,10 +272,10 @@ docker compose exec rescan sh -c "anton contract deleteInterface -c nft_item /va
 
 ### Updating contract interface
 
-To update a contract interface, you need to provide both the contract description 
-and the specific name of the contract you're updating. 
-Anton will then compare the provided contract interface description against the existing interface in the database. 
-If there are any differences, Anton initiates rescan tasks to reparse data and fix these changes. 
+To update a contract interface, you need to provide both the contract description
+and the specific name of the contract you're updating.
+Anton will then compare the provided contract interface description against the existing interface in the database.
+If there are any differences, Anton initiates rescan tasks to reparse data and fix these changes.
 This process may involve adding, deleting, or updating get-methods and contract operations.
 
 ```shell
@@ -271,3 +290,12 @@ docker compose exec web anton label "EQDj5AA8mQvM5wJEQsFFFof79y3ZsuX6wowktWQFhz_
 # known tonscan labels
 docker compose exec web anton label --tonscan
 ```
+
+Run configuration
+
+```
+Environment: DB_CH_URL=clickhouse://user:pass@localhost:9000/ton?sslmode=disable;DB_PG_URL=postgres://user:pass@localhost:5432/ton?sslmode=disable;DEBUG_LOGS=false;FROM_BLOCK=25000000;LITESERVERS=135.181.177.59:53312|aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=;RESCAN_SELECT_LIMIT=1000;RESCAN_WORKERS=4;WORKERS=4
+Program arguments: indexer --contracts-dir ./abi/known/
+```
+
+CGO_LDFLAGS=-Wl,-rpath,/Users/vapronin/Study/Diploma/anton/

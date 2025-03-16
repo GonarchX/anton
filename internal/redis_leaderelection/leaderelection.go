@@ -3,9 +3,11 @@ package leaderelection
 import (
 	"context"
 	"errors"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	redisutils "github.com/tonindexer/anton/redis"
 	"sync/atomic"
 	"time"
 )
@@ -25,80 +27,39 @@ import (
 */
 
 const (
-	defaultLeaderKey = "leader_lock"
+	DefaultLeaderKey = "leader_lock"
+
+	DefaultLeaderTTL       = 10 * time.Second
+	DefaultElectionTimeout = 5 * time.Second
+	DefaultRenewalPeriod   = 2 * time.Second
 )
-
-// Config определяет конфигурацию для выбора лидера.
-type Config struct {
-	// Название ключа для получения лидерства.
-	LockKey string
-	// Уникальный идентификатор узла.
-	NodeID string
-
-	/*
-		Значения полей должно быть следующим RenewalPeriod < ElectionTimeout < LeaderTTL.
-		За время ElectionTimeout - LeaderTTL узел должен успеть завершить все операции, которые требовали наличия лидерства.
-
-		Если ElectionTimeout == LeaderTTL, то возможен следующий сценарий:
-		Есть узел "node_1" - лидер и узел "node_2" - ведомый
-		ElectionTimeout и LeaderTTL = 10 секундам
-		1) "node_1" получает лидерство
-		2) "node_1" через 9 секунд начинает операцию на 5 секунд, требующую лидерство
-		3) "node_1" теряет связь с Redis на 2 секунды
-		4) "node_1" теряет лидерство
-		5) "node_2" в этот же момент получает лидерство и начинает другую операцию, требующую лидерство
-		По итогу, два узла выполняют операцию, требующую лидерство
-	*/
-
-	// Время жизни лидера.
-	LeaderTTL time.Duration
-	// Время после которого начинаются выборы следующего лидера при отказе текущего.
-	ElectionTimeout time.Duration
-	// Период между попытками захватить лидерство.
-	RenewalPeriod time.Duration
-	// Время последнего успешного взятия лидерства
-	lastElectionTime time.Time
-}
-
-func (c *Config) validate() error {
-	if c.LockKey == "" {
-		return errors.New("lock key must not be empty")
-	}
-	if c.NodeID == "" {
-		return errors.New("node id must not be empty")
-	}
-	if c.LeaderTTL <= 0 || c.ElectionTimeout <= 0 || c.RenewalPeriod <= 0 {
-		return errors.New("all durations must be greater than zero")
-	}
-	// RenewalPeriod < ElectionTimeout < LeaderTTL
-	if !(c.RenewalPeriod < c.ElectionTimeout && c.ElectionTimeout < c.LeaderTTL) {
-		return errors.New("invalid leader election timings (correct ratio is: RenewalPeriod < ElectionTimeout < LeaderTTL)")
-	}
-	return nil
-}
-
-// LeaderCallbacks определяет callback-функции для событий выбора лидера.
-type LeaderCallbacks struct {
-	OnStartLeading func()
-	OnStopLeading  func()
-}
-
-type LeaderElector struct {
-	isLeader           atomic.Bool
-	config             *Config
-	callbacks          LeaderCallbacks
-	lockClient         DistributedLockClient
-	lastLeadershipTime time.Time
-	logger             *zerolog.Logger
-}
 
 //go:generate mockgen -package=mocks -source=leaderelection.go -destination=mocks/mock_distributed_lock_client.go
 
+// DistributedLockClient необходим для тестов.
 type DistributedLockClient interface {
 	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
 	Get(ctx context.Context, key string) *redis.StringCmd
 	Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
 }
+
+type (
+	// LeaderElector агрегирует в себе функционал, необходимый для механизма определения лидерства.
+	LeaderElector struct {
+		isLeader           atomic.Bool
+		config             *Config
+		callbacks          LeaderCallbacks
+		lockClient         DistributedLockClient
+		lastLeadershipTime time.Time
+		logger             *zerolog.Logger
+	}
+
+	// LeaderCallbacks определяет callback-функции для событий выбора лидера.
+	LeaderCallbacks struct {
+		OnStartLeading func()
+		OnStopLeading  func()
+	}
+)
 
 func NewLeaderElector(
 	config *Config,
@@ -159,7 +120,7 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 		l.logger.Debug().Msg("Failed to own leadership")
 		// Если под был лидером, но не смог захватить блокировку, тогда лишаемся статус лидера.
 		if l.isLeader.Load() {
-			l.logger.Debug().Msg("Lose leadership: failed to renew lock")
+			l.logger.Error().Msg("Lose leadership: failed to renew lock")
 			l.loseLeadership()
 		}
 		return
@@ -167,7 +128,7 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 
 	// Успешно захватили лидерство на follower поде.
 	if !l.isLeader.Load() {
-		l.logger.Debug().Msg("Own leadership")
+		l.logger.Info().Msg("Own leadership")
 		l.ownLeadership()
 	}
 
@@ -192,4 +153,26 @@ func (l *LeaderElector) ownLeadership() {
 func (l *LeaderElector) loseLeadership() {
 	l.isLeader.Store(false)
 	l.callbacks.OnStopLeading()
+}
+
+// Run запускает механизм выбора лидера в отдельной горутине со стандартными настройками.
+func Run(ctx context.Context, callbacks LeaderCallbacks) error {
+	rdb, err := redisutils.New(ctx)
+	if err != nil {
+		return err
+	}
+
+	nodeID := "Node_" + uuid.NewString()
+	config := &Config{
+		LockKey:         DefaultLeaderKey,
+		NodeID:          nodeID,
+		LeaderTTL:       DefaultLeaderTTL,
+		ElectionTimeout: DefaultElectionTimeout,
+		RenewalPeriod:   DefaultRenewalPeriod,
+	}
+
+	le := NewLeaderElector(config, callbacks, rdb)
+	go le.Run(ctx)
+
+	return nil
 }

@@ -3,6 +3,7 @@ package leaderelection
 import (
 	"context"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
@@ -11,7 +12,6 @@ import (
 	docker "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -22,10 +22,6 @@ import (
 const (
 	NodeID1 = "node-1"
 	NodeID2 = "node-2"
-
-	leaderTTL       = 10 * time.Second
-	electionTimeout = 5 * time.Second
-	renewalPeriod   = 2 * time.Second
 )
 
 // LeaderElectionResult результаты изменения состояний узлов.
@@ -75,7 +71,7 @@ func setupRedisContainer(cli *client.Client) (string, error) {
 func connectToRedis() (*redis.Client, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
-		Password: "", // Пароль, если требуется.
+		Password: "",
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -113,13 +109,13 @@ func createCallbacks(ctx context.Context, leResults chan LeaderElectionResult, n
 	return callbacks
 }
 
-func runLeaderElector(ctx context.Context, leaderKey, nodeID string, leResults chan LeaderElectionResult, rdb *redis.Client) *LeaderElector {
+func runLeaderElector(ctx context.Context, nodeID string, leResults chan LeaderElectionResult, rdb *redis.Client) *LeaderElector {
 	config := &Config{
-		LockKey:         leaderKey,
+		LockKey:         DefaultLeaderKey,
 		NodeID:          nodeID,
-		LeaderTTL:       leaderTTL,
-		ElectionTimeout: electionTimeout,
-		RenewalPeriod:   renewalPeriod,
+		LeaderTTL:       DefaultLeaderTTL,
+		ElectionTimeout: DefaultElectionTimeout,
+		RenewalPeriod:   DefaultRenewalPeriod,
 	}
 	callbacks := createCallbacks(ctx, leResults, config.NodeID)
 	le := NewLeaderElector(config, callbacks, rdb)
@@ -143,11 +139,10 @@ func testLeaderElectionWithRedisFailure(t *testing.T, downDuration time.Duration
 		require.NoError(t, rdb.Close())
 	}()
 
-	leaderKey := defaultLeaderKey + uuid.NewString()
 	leResults := make(chan LeaderElectionResult, 64)
 
-	node1LE := runLeaderElector(ctx, leaderKey, NodeID1, leResults, rdb)
-	node2LE := runLeaderElector(ctx, leaderKey, NodeID2, leResults, rdb)
+	node1LE := runLeaderElector(ctx, NodeID1, leResults, rdb)
+	node2LE := runLeaderElector(ctx, NodeID2, leResults, rdb)
 
 	waitForLeader(t, ctx, node1LE, node2LE)
 
@@ -200,7 +195,7 @@ func TestLeaderElection_RedisDown(t *testing.T) {
 		{
 			// Запущен лидер и ведомый узлы. Редис выходит из строя на renewInterval. Лидерство не теряется.
 			name:     "renewalPeriod downtime",
-			downtime: renewalPeriod,
+			downtime: DefaultRenewalPeriod,
 			assertResults: func(results []LeaderElectionResult) {
 				// В данном кейсе должна прийти информация только о получении лидерства.
 				require.Equal(t, 1, len(results))
@@ -210,10 +205,10 @@ func TestLeaderElection_RedisDown(t *testing.T) {
 		{
 			// Запущен лидер и ведомый узлы. Редис выходит из строя на electionTimeout. Лидерство теряется, потом возвращается лидером.
 			name:     "electionTimeout downtime",
-			downtime: electionTimeout,
+			downtime: DefaultElectionTimeout,
 			assertResults: func(results []LeaderElectionResult) {
 				for _, result := range results {
-					fmt.Printf("%v - %v \n", result.NodeID, result.IsLeader)
+					log.Info().Msgf("%v - %v \n", result.NodeID, result.IsLeader)
 				}
 				require.Equal(t, 3, len(results))
 
@@ -233,7 +228,7 @@ func TestLeaderElection_RedisDown(t *testing.T) {
 		{
 			// Запущен лидер и ведомый узлы. Редис выходит из строя на leaderTTL. Лидерство теряется, потом один из узлов становится лидером.
 			name:     "leaderTTL downtime",
-			downtime: leaderTTL,
+			downtime: DefaultLeaderTTL,
 			assertResults: func(results []LeaderElectionResult) {
 
 				require.Equal(t, 3, len(results))
@@ -278,15 +273,14 @@ func TestLeaderElection_StableCluster(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rdb.Close()) }()
 
-	leaderKey := defaultLeaderKey + uuid.NewString()
 	leResults := make(chan LeaderElectionResult, 64)
 
 	// Act.
-	node1LE := runLeaderElector(ctx, leaderKey, NodeID1, leResults, rdb)
-	node2LE := runLeaderElector(ctx, leaderKey, NodeID2, leResults, rdb)
+	node1LE := runLeaderElector(ctx, NodeID1, leResults, rdb)
+	node2LE := runLeaderElector(ctx, NodeID2, leResults, rdb)
 
 	// Ждем, чтобы убедиться, что лидер не поменялся.
-	time.Sleep(leaderTTL + renewalPeriod)
+	time.Sleep(DefaultLeaderTTL + DefaultRenewalPeriod)
 
 	// Останавливаем работу узлов.
 	cancel()
@@ -296,7 +290,7 @@ func TestLeaderElection_StableCluster(t *testing.T) {
 	results := make([]LeaderElectionResult, 0)
 	for result := range leResults {
 		results = append(results, result)
-		fmt.Printf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
+		log.Info().Msgf("Node: %s, IsLeader: %v\n", result.NodeID, result.IsLeader)
 	}
 
 	require.Equal(t, 1, len(results))

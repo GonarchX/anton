@@ -25,9 +25,8 @@ func (s *Service) LookupMaster(ctx context.Context, api ton.APIClientWrapped, se
 	return master, nil
 }
 
-// getShardsInfo достает список шардов по указанному мастер блоку
+// getShardsInfo достает список шардов всех WorkChains, используя информацию внутри указанного блока MasterChain
 // Note: Сначала пытаемся достать блок из кеша, потом идем в API
-// Note: Под шардом подразумевается последний блок внутри шарда
 func (s *Service) getShardsInfo(ctx context.Context, master *ton.BlockIDExt) ([]*ton.BlockIDExt, error) {
 	if shards, ok := s.blocks.getShards(master); ok {
 		return shards, nil
@@ -93,7 +92,7 @@ func (s *Service) UnseenBlocks(ctx context.Context, masterSeqNo uint32) (master 
 	return curMaster, shards, err
 }
 
-// UnseenShards возвращает diff блоков между текущим и предыдущем masterchain стейтами
+// UnseenShards возвращает diff блоков между текущим и предыдущим masterchain стейтами
 func (s *Service) UnseenShards(ctx context.Context, master *ton.BlockIDExt) (shards []*ton.BlockIDExt, err error) {
 	// Получаем все шарды из последнего состояния Masterchain'а
 	curShards, err := s.getShardsInfo(ctx, master)
@@ -111,7 +110,7 @@ func (s *Service) UnseenShards(ctx context.Context, master *ton.BlockIDExt) (sha
 		return nil, errors.Wrap(err, "get masterchain shards info")
 	}
 
-	// Сохраняем все шарды из предыдущего стейта, чтобы найти разницу в шардах между предыдущим и текущим стейтом
+	// Сохраняем все seqNo последних блоков из шардов предыдущего стейта
 	shardLastSeqNo := map[string]uint32{}
 	for _, shard := range prevShards {
 		shardLastSeqNo[getShardID(shard)] = shard.SeqNo

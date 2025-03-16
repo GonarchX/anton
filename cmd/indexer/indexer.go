@@ -4,18 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-
 	"github.com/allisson/go-env"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
+	"github.com/tonindexer/anton/internal/app/indexer/kafka"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/uptrace/bun"
 	"github.com/urfave/cli/v2"
 	"github.com/xssnick/tonutils-go/liteclient"
 	"github.com/xssnick/tonutils-go/ton"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/tonindexer/anton/abi"
 	contractDesc "github.com/tonindexer/anton/cmd/contract"
@@ -181,17 +182,37 @@ var Command = &cli.Command{
 			AccountRepo: account.NewRepository(conn.CH, conn.PG),
 			Parser:      p,
 		})
-		i := indexer.NewService(&app.IndexerConfig{
-			DB:        conn,
-			API:       api,
-			Parser:    p,
-			Fetcher:   f,
-			FromBlock: uint32(env.GetInt32("FROM_BLOCK", 1)),
-			Workers:   env.GetInt("WORKERS", 4),
-		})
-		if err = i.Start(); err != nil {
+
+		kafkaSeedsStr := env.GetString("KAFKA_URL", "")
+		seeds := strings.Split(kafkaSeedsStr, ";")
+		topic := kafka.UnseenBlocksTopic
+		consumerGroup := "block-processors"
+		unseenBlocksTopicClient, err := kgo.NewClient(
+			kgo.SeedBrokers(seeds...),
+			kgo.ConsumerGroup(consumerGroup),
+			kgo.ConsumeTopics(topic),
+			kgo.DisableAutoCommit(),
+		)
+		if err != nil {
 			return err
 		}
+		i := indexer.NewService(&app.IndexerConfig{
+			DB:                      conn,
+			API:                     api,
+			Parser:                  p,
+			Fetcher:                 f,
+			FromBlock:               uint32(env.GetInt32("FROM_BLOCK", 1)),
+			Workers:                 env.GetInt("WORKERS", 4),
+			UnseenBlocksTopicClient: unseenBlocksTopicClient,
+		})
+
+		if err = i.StartWithLeaderElection(ctx.Context); err != nil {
+			return err
+		}
+
+		/*if err = i.Start(); err != nil {
+			return err
+		}*/
 
 		c := make(chan os.Signal, 1)
 		done := make(chan struct{}, 1)
@@ -200,6 +221,7 @@ var Command = &cli.Command{
 			<-c
 			i.Stop()
 			conn.Close()
+			unseenBlocksTopicClient.Close()
 			done <- struct{}{}
 		}()
 

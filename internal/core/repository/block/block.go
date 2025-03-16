@@ -5,11 +5,10 @@ import (
 	"database/sql"
 
 	"github.com/pkg/errors"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/go-clickhouse/ch"
-
 	"github.com/tonindexer/anton/internal/core"
 	"github.com/tonindexer/anton/internal/core/repository"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/go-clickhouse/ch"
 )
 
 var _ repository.Block = (*Repository)(nil)
@@ -72,7 +71,12 @@ func (r *Repository) AddBlocks(ctx context.Context, tx bun.Tx, info []*core.Bloc
 		return nil
 	}
 	for _, b := range info {
-		_, err := tx.NewInsert().Model(b).Exec(ctx)
+		_, err := tx.NewInsert().
+			On("CONFLICT (file_hash) DO UPDATE").
+			On("CONFLICT (workchain,shard,seq_no) DO UPDATE").
+			On("CONFLICT (root_hash) DO UPDATE").
+			Model(b).
+			Exec(ctx)
 		if err != nil {
 			return err
 		}

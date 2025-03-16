@@ -242,7 +242,10 @@ func (r *Repository) AddAccountStates(ctx context.Context, tx bun.Tx, accounts [
 		return errors.Wrapf(err, "write data to key-value store")
 	}
 
-	_, err := tx.NewInsert().Model(&accounts).Exec(ctx)
+	_, err := tx.NewInsert().
+		Model(&accounts).
+		On("CONFLICT (address,last_tx_lt) DO UPDATE").
+		Exec(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "cannot insert new account states")
 	}

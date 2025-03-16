@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package blockinfo;
+
+option go_package = "anton/api";
+
+message BlockInfo {
+  int32 workchain = 1;
+  int64 shard = 2;
+  uint32 seq_no = 3;
+  bytes root_hash = 4;
+  bytes file_hash = 5;
+}
+
+message UnseenBlockInfo {
+  BlockInfo master = 1;
+  repeated BlockInfo shards = 2;
+}
