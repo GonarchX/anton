@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"sort"
 	"time"
 
@@ -29,7 +30,7 @@ func (s *Service) insertData(
 		_ = dbTx.Rollback()
 	}()
 
-	for _, message := range msg {
+	/*for _, message := range msg {
 		err := s.Parser.ParseMessagePayload(ctx, message)
 		if errors.Is(err, app.ErrImpossibleParsing) {
 			continue
@@ -45,7 +46,7 @@ func (s *Service) insertData(
 				Msg("parse message payload")
 		}
 	}
-
+	*/
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddAccountStates(%d)", len(acc))
 		return s.accountRepo.AddAccountStates(ctx, dbTx, acc)
@@ -204,7 +205,33 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
 		newTransactions = append(newTransactions, newBlocks[i].Transactions...)
 	}
 
-	if err := s.insertData(ctx, s.uniqAccounts(newTransactions), s.uniqMessages(ctx, newTransactions), newTransactions, newBlocks); err != nil {
+	// Добавляем дополнительную информацию в сообщения путем парсинга их содержимого.
+	uniqMsgs := s.uniqMessages(ctx, newTransactions)
+	for _, message := range uniqMsgs {
+		err := s.Parser.ParseMessagePayload(ctx, message)
+		if errors.Is(err, app.ErrImpossibleParsing) {
+			continue
+		}
+		if err != nil {
+			log.Error().Err(err).
+				Hex("msg_hash", message.Hash).
+				Hex("src_tx_hash", message.SrcTxHash).
+				Str("src_addr", message.SrcAddress.String()).
+				Hex("dst_tx_hash", message.DstTxHash).
+				Str("dst_addr", message.DstAddress.String()).
+				Uint32("op_id", message.OperationID).
+				Msg("parse message payload")
+		}
+	}
+
+	errGroup := errgroup.Group{}
+	//errGroup.Go(func() error {
+	//	return s.broadcastNewData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
+	//})
+	errGroup.Go(func() error {
+		return s.insertData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
+	})
+	if err := errGroup.Wait(); err != nil {
 		panic(err)
 	}
 

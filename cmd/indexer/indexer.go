@@ -7,8 +7,7 @@ import (
 	"github.com/allisson/go-env"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
-	"github.com/tonindexer/anton/internal/app/indexer/kafka"
-	"github.com/twmb/franz-go/pkg/kgo"
+	kafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
 	"github.com/uptrace/bun"
 	"github.com/urfave/cli/v2"
 	"github.com/xssnick/tonutils-go/liteclient"
@@ -185,14 +184,10 @@ var Command = &cli.Command{
 
 		kafkaSeedsStr := env.GetString("KAFKA_URL", "")
 		seeds := strings.Split(kafkaSeedsStr, ";")
-		topic := kafka.UnseenBlocksTopic
-		consumerGroup := "block-processors"
-		unseenBlocksTopicClient, err := kgo.NewClient(
-			kgo.SeedBrokers(seeds...),
-			kgo.ConsumerGroup(consumerGroup),
-			kgo.ConsumeTopics(topic),
-			kgo.DisableAutoCommit(),
-		)
+		unseenBlocksTopicClient, err := kafka.New(seeds)
+		if err != nil {
+			return err
+		}
 		if err != nil {
 			return err
 		}

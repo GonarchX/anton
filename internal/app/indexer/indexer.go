@@ -2,9 +2,6 @@ package indexer
 
 import (
 	"context"
-	"fmt"
-	desc "github.com/tonindexer/anton/internal/generated/proto/anton/api"
-	"google.golang.org/protobuf/proto"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	"github.com/tonindexer/anton/internal/app"
-	"github.com/tonindexer/anton/internal/app/indexer/kafka"
 	"github.com/tonindexer/anton/internal/core"
 	"github.com/tonindexer/anton/internal/core/repository"
 	"github.com/tonindexer/anton/internal/core/repository/account"
@@ -21,7 +17,6 @@ import (
 	"github.com/tonindexer/anton/internal/core/repository/msg"
 	"github.com/tonindexer/anton/internal/core/repository/tx"
 	leaderelection "github.com/tonindexer/anton/internal/redis_leaderelection"
-	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/xssnick/tonutils-go/ton"
 )
 
@@ -131,6 +126,7 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 			}
 
 			produceCtx, produceCancel = context.WithCancel(ctx)
+			//_ = produceCtx
 			go ProduceBlockIdsLoop(produceCtx, s, fromBlock)
 
 			log.Info().
@@ -149,7 +145,19 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 		return err
 	}
 
-	go ConsumeBlockIdsLoop(ctx, s)
+	// Логика обработки блока после получения из Kafka.
+	processBlock := func(ctx context.Context, blockInfo *ton.BlockIDExt, shards []*ton.BlockIDExt) error {
+		txs, err := s.getBlockTxs(ctx, blockInfo, shards)
+		if err != nil {
+			log.Error().Msgf("failed to get block transactions: %v\n", err)
+			return err
+		}
+
+		// Сохраняем в бд.
+		s.saveBlock(ctx, txs)
+		return nil
+	}
+	go s.UnseenBlocksTopicClient.ConsumeLoop(ctx, processBlock)
 
 	s.mx.Lock()
 	s.run = true
@@ -195,84 +203,11 @@ func ProcessBlockId(ctx context.Context, s *Service, blockId uint32) error {
 		return err
 	}
 
-	blockInfo := kafka.UnseenBlockInfo{
-		Master: master,
-		Shards: shards,
-	}
-
-	// Сериализуем полученные данные.
-	unseenBlockInfoProto := blockInfo.MapToProto()
-	marshal, err := proto.Marshal(unseenBlockInfoProto)
+	err = s.UnseenBlocksTopicClient.ProduceSync(ctx, blockId, master, shards, err)
 	if err != nil {
-		log.Error().Err(err).Uint32("master_seq", blockId).Msg("failed to encode blocks")
 		return err
 	}
-
-	// Отправляем в Kafka.
-	record := &kgo.Record{Topic: kafka.UnseenBlocksTopic, Key: []byte(fmt.Sprintf("%v", blockId)), Value: marshal}
-	if err = s.UnseenBlocksTopicClient.ProduceSync(ctx, record).FirstErr(); err != nil {
-		log.Error().Msgf("record had a produce error while synchronously producing: %v\n", err)
-		return err
-	}
-	log.Debug().Msg(fmt.Sprintf("produce block with master_seq: %d", blockInfo.Master.SeqNo))
 	return nil
-}
-
-// ConsumeBlockIdsLoop получает блоки от лидера и сохраняет их в базу данных
-// Note: при попытке сохранить уже обработанные блоки мы просто выполним Upsert, перезаписав существующие данные
-func ConsumeBlockIdsLoop(ctx context.Context, s *Service) {
-pollAgain:
-	for {
-		pollFetches := func() (kgo.Fetches, error) {
-			fetches := s.UnseenBlocksTopicClient.PollFetches(ctx)
-			if errs := fetches.Errors(); len(errs) > 0 {
-				return fetches, fetches.Err()
-			}
-			return fetches, nil
-		}
-
-		fetches, err := backoff.Retry(ctx, pollFetches, backoff.WithMaxElapsedTime(10))
-		if err != nil {
-			log.Error().Msgf("failed to poll fetches: %v\n", err)
-			goto pollAgain
-		}
-
-		iter := fetches.RecordIter()
-		for !iter.Done() {
-			record := iter.Next()
-			blockInfoProto := &desc.UnseenBlockInfo{}
-			err = proto.Unmarshal(record.Value, blockInfoProto)
-			if err != nil {
-				log.Error().Msgf("failed to decode block info: %v\n", err)
-				goto pollAgain
-			}
-
-			blockInfo := kafka.MapFromProto(blockInfoProto)
-
-			log.Debug().Msg(fmt.Sprintf("consume block with master_seq: %d", blockInfo.Master.SeqNo))
-
-			shardsPtrs := make([]*ton.BlockIDExt, 0, len(blockInfo.Shards))
-			for _, shard := range blockInfo.Shards {
-				shardsPtrs = append(shardsPtrs, shard)
-			}
-
-			// Получаем все транзакции блока.
-			txs, err := s.getBlockTxs(ctx, blockInfo.Master, shardsPtrs)
-			if err != nil {
-				log.Error().Msgf("failed to get block transactions: %v\n", err)
-				goto pollAgain
-			}
-
-			// Сохраняем в бд.
-			s.saveBlock(ctx, txs)
-		}
-
-		err = s.UnseenBlocksTopicClient.CommitRecords(ctx, fetches.Records()...)
-		if err != nil {
-			log.Error().Msgf("failed to commit records: %v\n", err)
-			goto pollAgain
-		}
-	}
 }
 
 func (s *Service) Stop() {

@@ -1,7 +1,8 @@
 package app
 
 import (
-	"github.com/twmb/franz-go/pkg/kgo"
+	broadcast "github.com/tonindexer/anton/internal/kafka/broadcast"
+	block "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
 	"github.com/xssnick/tonutils-go/ton"
 
 	"github.com/tonindexer/anton/internal/core/repository"
@@ -12,9 +13,12 @@ type IndexerConfig struct {
 
 	API ton.APIClientWrapped
 
-	Fetcher                 FetcherService
-	Parser                  ParserService
-	UnseenBlocksTopicClient *kgo.Client
+	Fetcher FetcherService
+	Parser  ParserService
+
+	// Kafka clients per topics.
+	UnseenBlocksTopicClient      *block.UnseenBlocksTopicClient
+	BroadcastMessagesTopicClient *broadcast.BroadcastTopicClient
 
 	FromBlock uint32
 	Workers   int
