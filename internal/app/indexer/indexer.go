@@ -1,10 +1,10 @@
 package indexer
 
 import (
-	"bytes"
 	"context"
-	"encoding/gob"
 	"fmt"
+	desc "github.com/tonindexer/anton/internal/generated/proto/anton/api"
+	"google.golang.org/protobuf/proto"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,11 +39,6 @@ type (
 		run bool
 		mx  sync.RWMutex
 		wg  sync.WaitGroup
-	}
-
-	blockProcessor struct {
-		buf *bytes.Buffer
-		s   *Service
 	}
 )
 
@@ -154,12 +149,7 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 		return err
 	}
 
-	buf := new(bytes.Buffer)
-	p := blockProcessor{
-		buf: buf,
-		s:   s,
-	}
-	go p.ConsumeBlockIdsLoop(ctx)
+	go ConsumeBlockIdsLoop(ctx, s)
 
 	s.mx.Lock()
 	s.run = true
@@ -180,14 +170,9 @@ func ProduceBlockIdsLoop(ctx context.Context, s *Service, fromBlock uint32) {
 	// Создаем и запускаем воркеров
 	for range s.Workers {
 		go func() {
-			buf := new(bytes.Buffer)
-			p := blockProcessor{
-				buf: buf,
-				s:   s,
-			}
 			for ctx.Err() == nil {
 				for id := range blockIds {
-					err := p.ProcessBlockId(ctx, id)
+					err := ProcessBlockId(ctx, s, id)
 					if err != nil {
 						// Если падаем с ошибкой, то еще раз пытаемся обработать блок
 						blockIds <- id
@@ -202,34 +187,30 @@ func ProduceBlockIdsLoop(ctx context.Context, s *Service, fromBlock uint32) {
 	}
 }
 
-func (p *blockProcessor) ProcessBlockId(ctx context.Context, blockId uint32) error {
+func ProcessBlockId(ctx context.Context, s *Service, blockId uint32) error {
 	// Получаем блоки, которые находятся между текущим и предыдущим стейтом MasterChain.
-	master, shardPtrs, err := p.s.getUnseenBlocks(ctx, blockId)
+	master, shards, err := s.getUnseenBlocks(ctx, blockId)
 	if err != nil {
 		log.Error().Err(err).Uint32("master_seq", blockId).Msg("failed to get unseen blocks")
 		return err
 	}
 
-	shards := make([]ton.BlockIDExt, 0, len(shardPtrs))
-	for _, shardPtr := range shardPtrs {
-		shards = append(shards, *shardPtr)
-	}
 	blockInfo := kafka.UnseenBlockInfo{
-		Master: *master,
+		Master: master,
 		Shards: shards,
 	}
 
 	// Сериализуем полученные данные.
-	p.buf.Reset()
-	err = gob.NewEncoder(p.buf).Encode(blockInfo)
+	unseenBlockInfoProto := blockInfo.MapToProto()
+	marshal, err := proto.Marshal(unseenBlockInfoProto)
 	if err != nil {
 		log.Error().Err(err).Uint32("master_seq", blockId).Msg("failed to encode blocks")
 		return err
 	}
 
 	// Отправляем в Kafka.
-	record := &kgo.Record{Topic: kafka.UnseenBlocksTopic, Key: []byte(fmt.Sprintf("%v", blockId)), Value: p.buf.Bytes()}
-	if err = p.s.UnseenBlocksTopicClient.ProduceSync(ctx, record).FirstErr(); err != nil {
+	record := &kgo.Record{Topic: kafka.UnseenBlocksTopic, Key: []byte(fmt.Sprintf("%v", blockId)), Value: marshal}
+	if err = s.UnseenBlocksTopicClient.ProduceSync(ctx, record).FirstErr(); err != nil {
 		log.Error().Msgf("record had a produce error while synchronously producing: %v\n", err)
 		return err
 	}
@@ -239,11 +220,11 @@ func (p *blockProcessor) ProcessBlockId(ctx context.Context, blockId uint32) err
 
 // ConsumeBlockIdsLoop получает блоки от лидера и сохраняет их в базу данных
 // Note: при попытке сохранить уже обработанные блоки мы просто выполним Upsert, перезаписав существующие данные
-func (p *blockProcessor) ConsumeBlockIdsLoop(ctx context.Context) {
+func ConsumeBlockIdsLoop(ctx context.Context, s *Service) {
 pollAgain:
 	for {
 		pollFetches := func() (kgo.Fetches, error) {
-			fetches := p.s.UnseenBlocksTopicClient.PollFetches(ctx)
+			fetches := s.UnseenBlocksTopicClient.PollFetches(ctx)
 			if errs := fetches.Errors(); len(errs) > 0 {
 				return fetches, fetches.Err()
 			}
@@ -259,34 +240,34 @@ pollAgain:
 		iter := fetches.RecordIter()
 		for !iter.Done() {
 			record := iter.Next()
-			p.buf.Reset()
-			p.buf.Write(record.Value)
-			var blockInfo kafka.UnseenBlockInfo
-			err = gob.NewDecoder(p.buf).Decode(&blockInfo) // TODO: мб перейти на proto, чтобы не только go приложение могло парсить блоки.
+			blockInfoProto := &desc.UnseenBlockInfo{}
+			err = proto.Unmarshal(record.Value, blockInfoProto)
 			if err != nil {
 				log.Error().Msgf("failed to decode block info: %v\n", err)
 				goto pollAgain
 			}
 
+			blockInfo := kafka.MapFromProto(blockInfoProto)
+
 			log.Debug().Msg(fmt.Sprintf("consume block with master_seq: %d", blockInfo.Master.SeqNo))
 
 			shardsPtrs := make([]*ton.BlockIDExt, 0, len(blockInfo.Shards))
 			for _, shard := range blockInfo.Shards {
-				shardsPtrs = append(shardsPtrs, &shard)
+				shardsPtrs = append(shardsPtrs, shard)
 			}
 
 			// Получаем все транзакции блока.
-			txs, err := p.s.getBlockTxs(ctx, &blockInfo.Master, shardsPtrs)
+			txs, err := s.getBlockTxs(ctx, blockInfo.Master, shardsPtrs)
 			if err != nil {
 				log.Error().Msgf("failed to get block transactions: %v\n", err)
 				goto pollAgain
 			}
 
 			// Сохраняем в бд.
-			p.s.saveBlock(ctx, txs)
+			s.saveBlock(ctx, txs)
 		}
 
-		err = p.s.UnseenBlocksTopicClient.CommitRecords(ctx, fetches.Records()...)
+		err = s.UnseenBlocksTopicClient.CommitRecords(ctx, fetches.Records()...)
 		if err != nil {
 			log.Error().Msgf("failed to commit records: %v\n", err)
 			goto pollAgain
