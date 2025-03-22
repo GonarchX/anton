@@ -3,7 +3,7 @@ package leaderelection
 import (
 	"context"
 	"errors"
-	"github.com/google/uuid"
+
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -156,13 +156,12 @@ func (l *LeaderElector) loseLeadership() {
 }
 
 // Run запускает механизм выбора лидера в отдельной горутине со стандартными настройками.
-func Run(ctx context.Context, callbacks LeaderCallbacks) error {
+func Run(ctx context.Context, callbacks LeaderCallbacks, nodeID string) error {
 	rdb, err := redisutils.New(ctx)
 	if err != nil {
 		return err
 	}
 
-	nodeID := "Node_" + uuid.NewString()
 	config := &Config{
 		LockKey:         DefaultLeaderKey,
 		NodeID:          nodeID,
