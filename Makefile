@@ -35,4 +35,4 @@ install_protoc:
 generate:
 	@echo "Generating protobuf files..."
 	mkdir -p "./internal/generated/proto"
-	$(PROTOC_BIN) --go_out=./internal/generated/proto  api/proto/*.proto
+	$(PROTOC_BIN) --go_out=./internal/generated/proto --go-grpc_out=./internal/generated/proto api/proto/*.proto

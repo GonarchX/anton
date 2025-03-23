@@ -4,19 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/allisson/go-env"
-	"github.com/pkg/errors"
-	"github.com/rs/zerolog/log"
-	kafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
-	"github.com/uptrace/bun"
-	"github.com/urfave/cli/v2"
-	"github.com/xssnick/tonutils-go/liteclient"
-	"github.com/xssnick/tonutils-go/ton"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
+	"github.com/allisson/go-env"
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 	"github.com/tonindexer/anton/abi"
 	contractDesc "github.com/tonindexer/anton/cmd/contract"
 	"github.com/tonindexer/anton/internal/app"
@@ -27,6 +24,16 @@ import (
 	"github.com/tonindexer/anton/internal/core/repository"
 	"github.com/tonindexer/anton/internal/core/repository/account"
 	"github.com/tonindexer/anton/internal/core/repository/contract"
+	desc "github.com/tonindexer/anton/internal/generated/proto/anton/api"
+	broadcastKafka "github.com/tonindexer/anton/internal/kafka/broadcast"
+	kafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
+	broadcaster "github.com/tonindexer/anton/internal/proto/v1/get_data_stream"
+	"github.com/uptrace/bun"
+	"github.com/urfave/cli/v2"
+	"github.com/xssnick/tonutils-go/liteclient"
+	"github.com/xssnick/tonutils-go/ton"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 func getAllKnownContractFilenames(contractsDir string) (res []string, err error) {
@@ -182,26 +189,37 @@ var Command = &cli.Command{
 			Parser:      p,
 		})
 
+		nodeID := uuid.NewString()
+
 		kafkaSeedsStr := env.GetString("KAFKA_URL", "")
 		seeds := strings.Split(kafkaSeedsStr, ";")
 		unseenBlocksTopicClient, err := kafka.New(seeds)
 		if err != nil {
 			return err
 		}
+		broadcastTopicClient, err := broadcastKafka.New(ctx.Context, seeds, nodeID)
 		if err != nil {
 			return err
 		}
+
 		i := indexer.NewService(&app.IndexerConfig{
-			DB:                      conn,
-			API:                     api,
-			Parser:                  p,
-			Fetcher:                 f,
-			FromBlock:               uint32(env.GetInt32("FROM_BLOCK", 1)),
-			Workers:                 env.GetInt("WORKERS", 4),
-			UnseenBlocksTopicClient: unseenBlocksTopicClient,
+			DB:        conn,
+			API:       api,
+			Parser:    p,
+			Fetcher:   f,
+			FromBlock: uint32(env.GetInt32("FROM_BLOCK", 1)),
+			Workers:   env.GetInt("WORKERS", 4),
+
+			UnseenBlocksTopicClient:      unseenBlocksTopicClient,
+			BroadcastMessagesTopicClient: broadcastTopicClient,
 		})
 
-		if err = i.StartWithLeaderElection(ctx.Context); err != nil {
+		if err = i.StartWithLeaderElection(ctx.Context, nodeID); err != nil {
+			return err
+		}
+
+		err = removeUnusedBroadcastTopics(ctx.Context, nodeID, seeds)
+		if err != nil {
 			return err
 		}
 
@@ -209,19 +227,115 @@ var Command = &cli.Command{
 			return err
 		}*/
 
+		broadcastServer, err := startBroadcasting(ctx.Context, broadcastTopicClient)
+		if err != nil {
+			return err
+		}
+
 		c := make(chan os.Signal, 1)
 		done := make(chan struct{}, 1)
 		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
 			<-c
+			log.Info().Msgf("Graceful shutdown has begun")
+			defer func() { done <- struct{}{} }()
 			i.Stop()
 			conn.Close()
 			unseenBlocksTopicClient.Close()
-			done <- struct{}{}
+			broadcastServer.GracefulStop()
+			log.Info().Msgf("Graceful shutdown finished")
 		}()
 
 		<-done
 
 		return nil
 	},
+}
+
+// startBroadcasting запускает broadcast механизм вместе с gRPC сервером.
+func startBroadcasting(ctx context.Context, broadcastTopicClient *broadcastKafka.BroadcastTopicClient) (*grpc.Server, error) {
+	// Создаем gRPC сервер
+	server := grpc.NewServer()
+
+	broadcastService := &broadcaster.BroadcastService{
+		BroadcastMessagesTopicClient: broadcastTopicClient,
+		Broadcaster:                  broadcaster.NewBroadcaster[*desc.V1GetDataStreamResponse](),
+	}
+
+	broadcastService.StartBroadcasting(ctx)
+	desc.RegisterExampleServiceServer(server, broadcastService)
+
+	// Включаем поддержку рефлексии
+	reflection.Register(server)
+
+	// Запускаем сервер
+	listener, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Error().Msgf("Failed to listen: %v", err)
+		return nil, err
+	}
+
+	log.Info().Msg("Server is running on :50051")
+	go func() {
+		if err = server.Serve(listener); err != nil {
+			log.Error().Msgf("Failed to serve: %v", err)
+		}
+	}()
+
+	return server, nil
+}
+
+// removeUnusedBroadcastTopics отслеживает и удаляет пустые топики, оставшиеся после Broadcast подов.
+// Note: топики удаляются после 5 минут отсутствия активных Consumers.
+func removeUnusedBroadcastTopics(ctx context.Context, nodeID string, seeds []string) error {
+	/*config := &leaderelection.Config{
+		LockKey:         leaderelection.DefaultLeaderKey,
+		NodeID:          nodeID,
+		LeaderTTL:       leaderelection.DefaultLeaderTTL,
+		ElectionTimeout: leaderelection.DefaultElectionTimeout,
+		RenewalPeriod:   leaderelection.DefaultRenewalPeriod,
+	}
+
+	var (
+		leaderCtx    context.Context
+		leaderCancel context.CancelFunc
+	)
+
+	callbacks := leaderelection.LeaderCallbacks{
+		OnStartLeading: func() {
+			client, err := kgo.NewClient(
+				kgo.SeedBrokers(seeds...),
+			)
+			if err != nil {
+
+			}
+			admin := kadm.NewClient(client)
+
+			go func() {
+				groups, err := admin.DescribeGroups()
+				partitions := groups.AssignedPartitions()
+				partitions.
+				topics, err := admin.ListTopics(leaderCtx)
+				if err != nil {
+					log.Error().Err(err).Msg("failed to get topics from kafka")
+					return
+				}
+
+				for _, t := range topics {
+					admin.topic
+					t.
+				}
+			}()
+		},
+		OnStopLeading: func() {
+			leaderCancel()
+		},
+	}
+
+	err := leaderelection.RunWithConfig(ctx, callbacks, config)
+	if err != nil {
+		return err
+	}*/
+
+	return nil
 }

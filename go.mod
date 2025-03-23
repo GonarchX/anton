@@ -34,8 +34,11 @@ require (
 	github.com/gin-contrib/cors v1.4.0
 	github.com/google/uuid v1.6.0
 	github.com/redis/go-redis/v9 v9.6.1
+	github.com/samber/lo v1.47.0
 	github.com/twmb/franz-go v1.17.1
 	go.uber.org/mock v0.4.0
+	golang.org/x/sync v0.8.0
+	google.golang.org/grpc v1.66.1
 )
 
 require (
@@ -55,12 +58,14 @@ require (
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
+	github.com/twmb/franz-go/pkg/kadm v1.13.0 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.8.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.55.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.30.0 // indirect
 	go.opentelemetry.io/otel/metric v1.30.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.30.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	gotest.tools/v3 v3.5.1 // indirect
 )
 

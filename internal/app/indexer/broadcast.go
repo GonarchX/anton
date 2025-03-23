@@ -18,7 +18,7 @@ func (s *Service) broadcastNewData(
 ) error {
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "Kafka Broadcast: AddAccountStates(%d)", len(acc))
-		return s.BroadcastMessagesTopicClient.AddAccountStates(ctx, acc)
+		return s.BroadcastMessagesTopicClient.Produce(ctx, acc)
 	}(); err != nil {
 		return errors.Wrap(err, "failed to push info about new account states to Kafka")
 	}

@@ -294,8 +294,8 @@ docker compose exec web anton label --tonscan
 Run configuration
 
 ```
-Environment: DB_CH_URL=clickhouse://user:pass@localhost:9000/ton?sslmode=disable;DB_PG_URL=postgres://user:pass@localhost:5432/ton?sslmode=disable;DEBUG_LOGS=false;FROM_BLOCK=25000000;LITESERVERS=135.181.177.59:53312|aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=;RESCAN_SELECT_LIMIT=1000;RESCAN_WORKERS=4;WORKERS=4
+Environment: DB_CH_URL=clickhouse://user:pass@localhost:9000/ton?sslmode=disable;DB_PG_URL=postgres://user:pass@localhost:5432/ton?sslmode=disable;DEBUG_LOGS=false;FROM_BLOCK=25000000;LITESERVERS=135.181.177.59:53312|aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=;RESCAN_SELECT_LIMIT=1000;RESCAN_WORKERS=4;WORKERS=4;DYLD_LIBRARY_PATH=/usr/local/lib:$$DYLD_LIBRARY_PATH
 Program arguments: indexer --contracts-dir ./abi/known/
 ```
 
-CGO_LDFLAGS=-Wl,-rpath,/Users/vapronin/Study/Diploma/anton/
+DYLD_LIBRARY_PATH=/usr/local/lib:$$DYLD_LIBRARY_PATH

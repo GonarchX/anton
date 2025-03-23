@@ -146,7 +146,8 @@ services:
       - kafka
     command: "bash -c 'echo Waiting for Kafka to be ready... && \
         cub kafka-ready -b kafka:29092 1 30 && \
-        kafka-topics --create --topic unseen-blocks --partitions 2 --replication-factor 1 --if-not-exists --bootstrap-server kafka:29092'"
+        kafka-topics --create --topic unseen-blocks --partitions 2 --replication-factor 1 --if-not-exists --bootstrap-server kafka:29092' && \
+        kafka-topics --create --topic broadcast-messages --partitions 1 --replication-factor 1 --if-not-exists --bootstrap-server kafka:29092'"
 
   redis:
     image: redis:7.0

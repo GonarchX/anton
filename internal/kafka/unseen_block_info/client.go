@@ -11,17 +11,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const unseenBlocksTopic = "unseen-blocks"
+const (
+	unseenBlocksTopic         = "unseen-blocks"
+	unseenBlocksConsumerGroup = "block-processors"
+)
 
 type UnseenBlocksTopicClient struct {
 	client *kgo.Client
 }
 
 func New(seeds []string) (*UnseenBlocksTopicClient, error) {
-	consumerGroup := "block-processors"
-	unseenBlocksTopicClient, err := kgo.NewClient(
+	client, err := kgo.NewClient(
 		kgo.SeedBrokers(seeds...),
-		kgo.ConsumerGroup(consumerGroup),
+		kgo.ConsumerGroup(unseenBlocksConsumerGroup),
 		kgo.ConsumeTopics(unseenBlocksTopic),
 		kgo.DisableAutoCommit(),
 	)
@@ -29,7 +31,7 @@ func New(seeds []string) (*UnseenBlocksTopicClient, error) {
 		return nil, err
 	}
 	return &UnseenBlocksTopicClient{
-		client: unseenBlocksTopicClient,
+		client: client,
 	}, err
 }
 
@@ -37,7 +39,13 @@ func (c *UnseenBlocksTopicClient) Close() {
 	c.client.Close()
 }
 
-func (c *UnseenBlocksTopicClient) ProduceSync(ctx context.Context, blockId uint32, master *ton.BlockIDExt, shards []*ton.BlockIDExt, err error) error {
+func (c *UnseenBlocksTopicClient) ProduceSync(
+	ctx context.Context,
+	blockId uint32,
+	master *ton.BlockIDExt,
+	shards []*ton.BlockIDExt,
+	err error,
+) error {
 	blockInfo := UnseenBlockInfo{
 		Master: master,
 		Shards: shards,
@@ -61,8 +69,8 @@ func (c *UnseenBlocksTopicClient) ProduceSync(ctx context.Context, blockId uint3
 	return nil
 }
 
-// ConsumeBlockIdsLoop получает блоки от лидера и сохраняет их в базу данных
-// Note: при попытке сохранить уже обработанные блоки мы просто выполним Upsert, перезаписав существующие данные
+// ConsumeLoop получает блоки от лидера и сохраняет их в базу данных.
+// Note: при попытке сохранить уже обработанные блоки мы просто выполним Upsert, перезаписав существующие данные.
 func (c *UnseenBlocksTopicClient) ConsumeLoop(
 	ctx context.Context,
 	processBlock func(ctx context.Context, blockInfo *ton.BlockIDExt, shards []*ton.BlockIDExt) error,
@@ -109,10 +117,10 @@ pollAgain:
 			}
 		}
 
-		err = c.client.CommitRecords(ctx, fetches.Records()...)
+		/*err = c.client.CommitRecords(ctx, fetches.Records()...)
 		if err != nil {
 			log.Error().Msgf("failed to commit records: %v\n", err)
 			goto pollAgain
-		}
+		}*/
 	}
 }

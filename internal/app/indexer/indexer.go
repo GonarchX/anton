@@ -100,17 +100,17 @@ func (s *Service) Start() error {
 }
 
 // StartWithLeaderElection начинает индексацию блоков с учетом лидерства.
-func (s *Service) StartWithLeaderElection(ctx context.Context) error {
-	b := backoff.NewExponentialBackOff()
-	b.MaxInterval = 5 * time.Second
-
+func (s *Service) StartWithLeaderElection(ctx context.Context, nodeID string) error {
 	var (
-		produceCtx    context.Context
-		produceCancel context.CancelFunc
+		leaderCtx    context.Context
+		leaderCancel context.CancelFunc
 	)
 	callbacks := leaderelection.LeaderCallbacks{
-		// Если узел является лидером, тогда он отправляет идентификаторы блоков другим узлам и себе шину данных.
+		// Если узел является лидером, тогда он отправляет идентификаторы блоков другим узлам и себе через шину данных.
 		OnStartLeading: func() {
+			b := backoff.NewExponentialBackOff()
+			b.MaxInterval = 5 * time.Second
+
 			fromBlock, err := backoff.Retry(ctx, func() (uint32, error) {
 				lastMaster, err := s.blockRepo.GetLastMasterBlock(ctx)
 				if errors.Is(err, core.ErrNotFound) {
@@ -135,12 +135,12 @@ func (s *Service) StartWithLeaderElection(ctx context.Context) error {
 				Msg("start leading")
 		},
 		OnStopLeading: func() {
-			produceCancel()
+			leaderCancel()
 			log.Info().Msg("stop leading")
 		},
 	}
 
-	err := leaderelection.Run(ctx, callbacks)
+	err := leaderelection.Run(ctx, callbacks, nodeID)
 	if err != nil {
 		return err
 	}
