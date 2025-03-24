@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/allisson/go-env"
 	"github.com/google/uuid"
@@ -28,6 +29,8 @@ import (
 	broadcastKafka "github.com/tonindexer/anton/internal/kafka/broadcast"
 	kafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
 	broadcaster "github.com/tonindexer/anton/internal/proto/v1/get_data_stream"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/uptrace/bun"
 	"github.com/urfave/cli/v2"
 	"github.com/xssnick/tonutils-go/liteclient"
@@ -269,21 +272,27 @@ func startBroadcasting(ctx context.Context, broadcastTopicClient *broadcastKafka
 	reflection.Register(server)
 
 	// Запускаем сервер
-	listener, err := net.Listen("tcp", ":50051")
+	const grpcPort = "50051"
+	listener, err := net.Listen("tcp", ":"+grpcPort)
 	if err != nil {
-		log.Error().Msgf("Failed to listen: %v", err)
+		log.Error().Err(err).Msgf("Failed to start server on %s port", grpcPort)
 		return nil, err
 	}
 
 	log.Info().Msg("Server is running on :50051")
 	go func() {
 		if err = server.Serve(listener); err != nil {
-			log.Error().Msgf("Failed to serve: %v", err)
+			log.Error().Err(err).Msgf("Failed to serve")
 		}
 	}()
 
 	return server, nil
 }
+
+const (
+	outdatedGroupsPollInterval = 5 * time.Second
+	outdatedGroupsTimeLimit    = 15 * time.Second
+)
 
 // removeUnusedBroadcastTopics отслеживает и удаляет пустые топики, оставшиеся после Broadcast подов.
 // Note: топики удаляются после 5 минут отсутствия активных Consumers.
@@ -335,7 +344,78 @@ func removeUnusedBroadcastTopics(ctx context.Context, nodeID string, seeds []str
 	err := leaderelection.RunWithConfig(ctx, callbacks, config)
 	if err != nil {
 		return err
-	}*/
+	}
+	*/
+
+	/*
+		Мапа в которой храним группу и последнее время, когда мы видели в ней мемберов
+
+		Проходимся раз в 30 секунд по мапе
+		Проверяем группу на наличие мемберов, если группа не пуста, то мы сбрасываем время, когда последний раз видели в ней мемберов.
+		Иначе проверяем, что с последнего раза, когда в ней были мемберы прошло не более 5 минут.
+		Если прошло больше 5 минут, то удаляем группу
+	*/
+
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(seeds...),
+	)
+	if err != nil {
+		return err
+	}
+	admin := kadm.NewClient(client)
+	lastSeen := make(map[string]time.Time) // Key: Название группы | Value: Последнее время, когда она была не пустой.
+	go func() {
+		ticker := time.NewTicker(outdatedGroupsPollInterval)
+		for {
+			select {
+			case <-ticker.C:
+				err := purgeOutdatedGroups(ctx, admin, lastSeen)
+				if err != nil {
+					log.Error().Err(err).Msgf("Failed to purge outdated groups")
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+
+	}()
+
+	return nil
+}
+
+// purgeOutdatedGroups мониторит и удаляет Consumer Groups, которые были пустыми на протяжении outdatedGroupsTimeLimit.
+func purgeOutdatedGroups(ctx context.Context, admin *kadm.Client, lastSeen map[string]time.Time) error {
+	describeGroups, err := admin.DescribeGroups(ctx)
+	groupsToDelete := make([]string, 0)
+
+	// Удаляем все outdated группы, которые были пустыми более outdatedGroupsTimeLimit.
+	for _, group := range describeGroups {
+		groupName := group.Group
+		if len(group.Members) > 0 {
+			lastSeen[groupName] = time.Now()
+		} else if _, ok := lastSeen[groupName]; !ok {
+			lastSeen[groupName] = time.Now()
+		} else if time.Since(lastSeen[groupName]) > outdatedGroupsTimeLimit {
+			groupsToDelete = append(groupsToDelete, groupName)
+		}
+	}
+
+	// Удаляем из Kafka.
+	if _, err = admin.DeleteGroups(ctx, groupsToDelete...); err != nil {
+		return fmt.Errorf("failed to delete groups: %w", err)
+	}
+
+	// Удаляем из памяти.
+	for _, groupName := range groupsToDelete {
+		delete(lastSeen, groupName)
+	}
+
+	// Удаляем группы, которых нет в Kafka, но при этом они сохранены у нас в памяти.
+	for groupName := range lastSeen {
+		if _, contains := describeGroups[groupName]; !contains {
+			delete(lastSeen, groupName)
+		}
+	}
 
 	return nil
 }

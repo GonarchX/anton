@@ -121,7 +121,7 @@ func (s *Service) StartWithLeaderElection(ctx context.Context, nodeID string) er
 				return lastMaster.SeqNo + 1, nil
 			}, backoff.WithBackOff(b), backoff.WithMaxElapsedTime(1*time.Minute))
 			if err != nil {
-				log.Error().Msgf("failed to get last masterchain block: %v", err)
+				log.Error().Err(err).Msgf("failed to get last masterchain block")
 				panic(err) // TODO: отставить панику, добавить отказ от лидерства
 			}
 
@@ -149,7 +149,7 @@ func (s *Service) StartWithLeaderElection(ctx context.Context, nodeID string) er
 	processBlock := func(ctx context.Context, blockInfo *ton.BlockIDExt, shards []*ton.BlockIDExt) error {
 		txs, err := s.getBlockTxs(ctx, blockInfo, shards)
 		if err != nil {
-			log.Error().Msgf("failed to get block transactions: %v\n", err)
+			log.Error().Err(err).Msgf("failed to get block transactions")
 			return err
 		}
 

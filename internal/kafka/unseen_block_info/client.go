@@ -62,7 +62,7 @@ func (c *UnseenBlocksTopicClient) ProduceSync(
 	// Отправляем в Kafka.
 	record := &kgo.Record{Topic: unseenBlocksTopic, Key: []byte(fmt.Sprintf("%v", blockId)), Value: marshal}
 	if err = c.client.ProduceSync(ctx, record).FirstErr(); err != nil {
-		log.Error().Msgf("record had a produce error while synchronously producing: %v\n", err)
+		log.Error().Err(err).Msgf("record had a produce error while synchronously producing")
 		return err
 	}
 	log.Debug().Msg(fmt.Sprintf("produce block with master_seq: %d", blockInfo.Master.SeqNo))
@@ -87,7 +87,7 @@ pollAgain:
 
 		fetches, err := backoff.Retry(ctx, pollFetches, backoff.WithMaxElapsedTime(10))
 		if err != nil {
-			log.Error().Msgf("failed to poll fetches: %v\n", err)
+			log.Error().Err(err).Msgf("failed to poll fetches")
 			goto pollAgain
 		}
 
@@ -97,7 +97,7 @@ pollAgain:
 			blockInfoProto := &desc.UnseenBlockInfo{}
 			err = proto.Unmarshal(record.Value, blockInfoProto)
 			if err != nil {
-				log.Error().Msgf("failed to decode block info: %v\n", err)
+				log.Error().Err(err).Msgf("failed to decode block info")
 				goto pollAgain
 			}
 

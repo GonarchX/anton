@@ -71,7 +71,7 @@ func (c *BroadcastTopicClient) Produce(ctx context.Context, accounts []*core.Acc
 	}
 
 	if err := c.client.ProduceSync(ctx, records...).FirstErr(); err != nil {
-		log.Error().Msgf("record had a produce error while synchronously producing: %v\n", err)
+		log.Error().Err(err).Msgf("record had a produce error while synchronously producing")
 		return err
 	}
 
@@ -97,7 +97,7 @@ func (c *BroadcastTopicClient) Consume(ctx context.Context) chan *desc.V1GetData
 
 			fetches, err := backoff.Retry(ctx, pollFetches, backoff.WithMaxElapsedTime(10))
 			if err != nil {
-				log.Error().Msgf("failed to poll fetches: %v\n", err)
+				log.Error().Err(err).Msgf("failed to poll fetches")
 				goto pollAgain
 			}
 
@@ -107,7 +107,7 @@ func (c *BroadcastTopicClient) Consume(ctx context.Context) chan *desc.V1GetData
 				data := &desc.V1GetDataStreamResponse{}
 				err = proto.Unmarshal(record.Value, data)
 				if err != nil {
-					log.Error().Msgf("failed to decode block info: %v\n", err)
+					log.Error().Err(err).Msgf("failed to decode block info")
 					goto pollAgain
 				}
 
@@ -121,7 +121,7 @@ func (c *BroadcastTopicClient) Consume(ctx context.Context) chan *desc.V1GetData
 
 			err = c.client.CommitRecords(ctx, fetches.Records()...)
 			if err != nil {
-				log.Error().Msgf("failed to commit records: %v\n", err)
+				log.Error().Err(err).Msgf("failed to commit records")
 				goto pollAgain
 			}
 		}

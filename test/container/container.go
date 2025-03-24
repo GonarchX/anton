@@ -29,7 +29,7 @@ func RemoveContainersWithPrefix(prefix string) {
 	for _, c := range containers {
 		err := RemoveContainer(cli, c.ID)
 		if err != nil {
-			log.Error().Msgf("Error removing container %s: %v", c.ID, err)
+			log.Error().Err(err).Msgf("Error removing container %s", c.ID)
 		} else {
 			log.Info().Msgf("Container %s successfully removed", c.ID)
 		}
