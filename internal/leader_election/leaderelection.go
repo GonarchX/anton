@@ -1,9 +1,8 @@
-package leaderelection
+package leader_election
 
 import (
 	"context"
 	"errors"
-
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -46,16 +45,18 @@ type DistributedLockClient interface {
 type (
 	// LeaderElector агрегирует в себе функционал, необходимый для механизма определения лидерства.
 	LeaderElector struct {
-		isLeader           atomic.Bool
-		config             *Config
-		callbacks          LeaderCallbacks
+		isLeader atomic.Bool
+		config   *Config
+		// Список действий, которые нужно выполнить во время получения/потери лидерства.
+		// Все callbacks выполняются синхронно.
+		callbacks          []LeaderCallback
 		lockClient         DistributedLockClient
 		lastLeadershipTime time.Time
 		logger             *zerolog.Logger
 	}
 
-	// LeaderCallbacks определяет callback-функции для событий выбора лидера.
-	LeaderCallbacks struct {
+	// LeaderCallback определяет callback-функции для событий выбора лидера.
+	LeaderCallback struct {
 		OnStartLeading func()
 		OnStopLeading  func()
 	}
@@ -63,8 +64,8 @@ type (
 
 func NewLeaderElector(
 	config *Config,
-	callbacks LeaderCallbacks,
 	rdb DistributedLockClient,
+	callbacks ...LeaderCallback,
 ) *LeaderElector {
 	enrichedLogger := log.Logger.With().Str("NodeID", config.NodeID).Logger()
 	return &LeaderElector{
@@ -146,17 +147,21 @@ func (l *LeaderElector) tryAcquireLeadership(ctx context.Context) {
 // ownLeadership действия при получении лидерства.
 func (l *LeaderElector) ownLeadership() {
 	l.isLeader.Store(true)
-	l.callbacks.OnStartLeading()
+	for _, callback := range l.callbacks {
+		callback.OnStartLeading()
+	}
 }
 
 // loseLeadership действия при потере лидерства.
 func (l *LeaderElector) loseLeadership() {
 	l.isLeader.Store(false)
-	l.callbacks.OnStopLeading()
+	for _, callback := range l.callbacks {
+		callback.OnStopLeading()
+	}
 }
 
-// Run запускает механизм выбора лидера в отдельной горутине со стандартными настройками.
-func Run(ctx context.Context, callbacks LeaderCallbacks, nodeID string) error {
+// RunDefault запускает механизм выбора лидера в отдельной горутине со стандартными настройками.
+func RunDefault(ctx context.Context, nodeID string, callbacks ...LeaderCallback) error {
 	rdb, err := redisutils.New(ctx)
 	if err != nil {
 		return err
@@ -170,7 +175,7 @@ func Run(ctx context.Context, callbacks LeaderCallbacks, nodeID string) error {
 		RenewalPeriod:   DefaultRenewalPeriod,
 	}
 
-	le := NewLeaderElector(config, callbacks, rdb)
+	le := NewLeaderElector(config, rdb, callbacks...)
 	go le.Run(ctx)
 
 	return nil

@@ -1,4 +1,4 @@
-package leaderelection
+package leader_election
 
 import (
 	"context"
@@ -90,8 +90,8 @@ func connectToRedis() (*redis.Client, error) {
 	return rdb, nil
 }
 
-func createCallbacks(ctx context.Context, leResults chan LeaderElectionResult, nodeName string) LeaderCallbacks {
-	callbacks := LeaderCallbacks{
+func createCallbacks(ctx context.Context, leResults chan LeaderElectionResult, nodeName string) LeaderCallback {
+	callbacks := LeaderCallback{
 		OnStartLeading: func() {
 			select {
 			case leResults <- LeaderElectionResult{
@@ -123,7 +123,7 @@ func runLeaderElector(ctx context.Context, nodeID string, leResults chan LeaderE
 		RenewalPeriod:   DefaultRenewalPeriod,
 	}
 	callbacks := createCallbacks(ctx, leResults, config.NodeID)
-	le := NewLeaderElector(config, callbacks, rdb)
+	le := NewLeaderElector(config, rdb, callbacks)
 	go le.Run(ctx)
 	return le
 }

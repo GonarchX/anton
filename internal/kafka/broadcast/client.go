@@ -32,11 +32,6 @@ func New(ctx context.Context, seeds []string, podID string) (*BroadcastTopicClie
 		return nil, err
 	}
 
-	//admin := kadm.NewClient(client)
-	//if _, err = admin.CreateTopic(ctx, 1, 1, make(map[string]*string), consumerGroup); err != nil {
-	//	return nil, fmt.Errorf("failed to create topic for broadcast messages consuming: %w", err)
-	//}
-
 	return &BroadcastTopicClient{
 		client: client,
 	}, err
@@ -117,12 +112,6 @@ func (c *BroadcastTopicClient) Consume(ctx context.Context) chan *desc.V1GetData
 				case out <- data:
 				case <-ctx.Done():
 				}
-			}
-
-			err = c.client.CommitRecords(ctx, fetches.Records()...)
-			if err != nil {
-				log.Error().Err(err).Msgf("failed to commit records")
-				goto pollAgain
 			}
 		}
 		close(out)

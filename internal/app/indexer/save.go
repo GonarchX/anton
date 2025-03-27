@@ -71,7 +71,7 @@ func (s *Service) insertData(
 
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddBlocks(%d)", len(b))
-		return s.blockRepo.AddBlocks(ctx, dbTx, b)
+		return s.BlockRepo.AddBlocks(ctx, dbTx, b)
 	}(); err != nil {
 		return errors.Wrap(err, "add blocks")
 	}
@@ -148,7 +148,7 @@ func (s *Service) getMessageSource(ctx context.Context, msg *core.Message) (skip
 		return false
 	}
 
-	blocks, err := s.blockRepo.CountMasterBlocks(ctx)
+	blocks, err := s.BlockRepo.CountMasterBlocks(ctx)
 	if err != nil {
 		panic(errors.Wrap(err, "count masterchain blocks"))
 	}
@@ -225,9 +225,9 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
 	}
 
 	errGroup := errgroup.Group{}
-	//errGroup.Go(func() error {
-	//	return s.broadcastNewData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
-	//})
+	errGroup.Go(func() error {
+		return s.broadcastNewData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
+	})
 	errGroup.Go(func() error {
 		return s.insertData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
 	})

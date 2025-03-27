@@ -4,13 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
-
 	"github.com/allisson/go-env"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -27,9 +20,11 @@ import (
 	"github.com/tonindexer/anton/internal/core/repository/contract"
 	desc "github.com/tonindexer/anton/internal/generated/proto/anton/api"
 	broadcastKafka "github.com/tonindexer/anton/internal/kafka/broadcast"
-	kafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
+	unseenBlocksKafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
+	leaderelection "github.com/tonindexer/anton/internal/leader_election"
+	leader_election_callbacks "github.com/tonindexer/anton/internal/leader_election/callbacks"
 	broadcaster "github.com/tonindexer/anton/internal/proto/v1/get_data_stream"
-	"github.com/twmb/franz-go/pkg/kadm"
+	redisutils "github.com/tonindexer/anton/redis"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/uptrace/bun"
 	"github.com/urfave/cli/v2"
@@ -37,6 +32,11 @@ import (
 	"github.com/xssnick/tonutils-go/ton"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+	"net"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 )
 
 func getAllKnownContractFilenames(contractsDir string) (res []string, err error) {
@@ -134,29 +134,30 @@ var Command = &cli.Command{
 	},
 
 	Action: func(ctx *cli.Context) error {
+		appCtx := ctx.Context
 		chURL := env.GetString("DB_CH_URL", "")
 		pgURL := env.GetString("DB_PG_URL", "")
 
-		conn, err := repository.ConnectDB(ctx.Context, chURL, pgURL)
+		conn, err := repository.ConnectDB(appCtx, chURL, pgURL)
 		if err != nil {
 			return errors.Wrap(err, "cannot connect to a database")
 		}
 
 		contractRepo := contract.NewRepository(conn.PG)
 
-		interfaces, err := contractRepo.GetInterfaces(ctx.Context)
+		interfaces, err := contractRepo.GetInterfaces(appCtx)
 		if err != nil {
 			return errors.Wrap(err, "get interfaces")
 		}
 		if len(interfaces) == 0 {
 			log.Info().Str("contracts_directory", ctx.String("contracts-dir")).
 				Msg("contract interfaces are not detected, inserting descriptions for known contracts")
-			if err := addKnownContracts(ctx.Context, conn.PG, ctx.String("contracts-dir")); err != nil {
+			if err := addKnownContracts(appCtx, conn.PG, ctx.String("contracts-dir")); err != nil {
 				return err
 			}
 		}
 
-		def, err := contractRepo.GetDefinitions(ctx.Context)
+		def, err := contractRepo.GetDefinitions(appCtx)
 		if err != nil {
 			return errors.Wrap(err, "get definitions")
 		}
@@ -173,11 +174,11 @@ var Command = &cli.Command{
 				return fmt.Errorf("wrong server address format '%s'", addr)
 			}
 			host, key := split[0], split[1]
-			if err := client.AddConnection(ctx.Context, host, key); err != nil {
+			if err := client.AddConnection(appCtx, host, key); err != nil {
 				return errors.Wrapf(err, "cannot add connection with %s host and %s key", host, key)
 			}
 		}
-		bcConfig, err := app.GetBlockchainConfig(ctx.Context, api)
+		bcConfig, err := app.GetBlockchainConfig(appCtx, api)
 		if err != nil {
 			return errors.Wrap(err, "cannot get blockchain config")
 		}
@@ -196,11 +197,11 @@ var Command = &cli.Command{
 
 		kafkaSeedsStr := env.GetString("KAFKA_URL", "")
 		seeds := strings.Split(kafkaSeedsStr, ";")
-		unseenBlocksTopicClient, err := kafka.New(seeds)
+		unseenBlocksTopicClient, err := unseenBlocksKafka.New(seeds)
 		if err != nil {
 			return err
 		}
-		broadcastTopicClient, err := broadcastKafka.New(ctx.Context, seeds, nodeID)
+		broadcastTopicClient, err := broadcastKafka.New(appCtx, seeds, nodeID)
 		if err != nil {
 			return err
 		}
@@ -217,12 +218,17 @@ var Command = &cli.Command{
 			BroadcastMessagesTopicClient: broadcastTopicClient,
 		})
 
-		if err = i.StartWithLeaderElection(ctx.Context, nodeID); err != nil {
+		leaderCallbacks, err := createCallbacks(appCtx, seeds, i)
+		if err != nil {
 			return err
 		}
-
-		err = removeUnusedBroadcastTopics(ctx.Context, nodeID, seeds)
+		le, err := createLeaderElector(appCtx, nodeID, leaderCallbacks)
 		if err != nil {
+			return err
+		}
+		go le.Run(appCtx)
+
+		if err = i.Start(appCtx); err != nil {
 			return err
 		}
 
@@ -230,7 +236,7 @@ var Command = &cli.Command{
 			return err
 		}*/
 
-		broadcastServer, err := startBroadcasting(ctx.Context, broadcastTopicClient)
+		broadcastServer, err := startBroadcasting(appCtx, broadcastTopicClient)
 		if err != nil {
 			return err
 		}
@@ -253,6 +259,42 @@ var Command = &cli.Command{
 
 		return nil
 	},
+}
+
+func createCallbacks(ctx context.Context, seeds []string, s *indexer.Service) ([]leaderelection.LeaderCallback, error) {
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(seeds...),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return []leaderelection.LeaderCallback{
+		leader_election_callbacks.RemoveUnusedBroadcastTopics(ctx, client),
+		leader_election_callbacks.ProduceUnseenBlocks(ctx, s),
+	}, nil
+}
+
+func createLeaderElector(
+	ctx context.Context,
+	nodeID string,
+	callbacks []leaderelection.LeaderCallback,
+) (*leaderelection.LeaderElector, error) {
+	rdb, err := redisutils.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	config := &leaderelection.Config{
+		LockKey:         leaderelection.DefaultLeaderKey,
+		NodeID:          nodeID,
+		LeaderTTL:       leaderelection.DefaultLeaderTTL,
+		ElectionTimeout: leaderelection.DefaultElectionTimeout,
+		RenewalPeriod:   leaderelection.DefaultRenewalPeriod,
+	}
+
+	le := leaderelection.NewLeaderElector(config, rdb, callbacks...)
+	return le, nil
 }
 
 // startBroadcasting запускает broadcast механизм вместе с gRPC сервером.
@@ -287,135 +329,4 @@ func startBroadcasting(ctx context.Context, broadcastTopicClient *broadcastKafka
 	}()
 
 	return server, nil
-}
-
-const (
-	outdatedGroupsPollInterval = 5 * time.Second
-	outdatedGroupsTimeLimit    = 15 * time.Second
-)
-
-// removeUnusedBroadcastTopics отслеживает и удаляет пустые топики, оставшиеся после Broadcast подов.
-// Note: топики удаляются после 5 минут отсутствия активных Consumers.
-func removeUnusedBroadcastTopics(ctx context.Context, nodeID string, seeds []string) error {
-	/*config := &leaderelection.Config{
-		LockKey:         leaderelection.DefaultLeaderKey,
-		NodeID:          nodeID,
-		LeaderTTL:       leaderelection.DefaultLeaderTTL,
-		ElectionTimeout: leaderelection.DefaultElectionTimeout,
-		RenewalPeriod:   leaderelection.DefaultRenewalPeriod,
-	}
-
-	var (
-		leaderCtx    context.Context
-		leaderCancel context.CancelFunc
-	)
-
-	callbacks := leaderelection.LeaderCallbacks{
-		OnStartLeading: func() {
-			client, err := kgo.NewClient(
-				kgo.SeedBrokers(seeds...),
-			)
-			if err != nil {
-
-			}
-			admin := kadm.NewClient(client)
-
-			go func() {
-				groups, err := admin.DescribeGroups()
-				partitions := groups.AssignedPartitions()
-				partitions.
-				topics, err := admin.ListTopics(leaderCtx)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to get topics from kafka")
-					return
-				}
-
-				for _, t := range topics {
-					admin.topic
-					t.
-				}
-			}()
-		},
-		OnStopLeading: func() {
-			leaderCancel()
-		},
-	}
-
-	err := leaderelection.RunWithConfig(ctx, callbacks, config)
-	if err != nil {
-		return err
-	}
-	*/
-
-	/*
-		Мапа в которой храним группу и последнее время, когда мы видели в ней мемберов
-
-		Проходимся раз в 30 секунд по мапе
-		Проверяем группу на наличие мемберов, если группа не пуста, то мы сбрасываем время, когда последний раз видели в ней мемберов.
-		Иначе проверяем, что с последнего раза, когда в ней были мемберы прошло не более 5 минут.
-		Если прошло больше 5 минут, то удаляем группу
-	*/
-
-	client, err := kgo.NewClient(
-		kgo.SeedBrokers(seeds...),
-	)
-	if err != nil {
-		return err
-	}
-	admin := kadm.NewClient(client)
-	lastSeen := make(map[string]time.Time) // Key: Название группы | Value: Последнее время, когда она была не пустой.
-	go func() {
-		ticker := time.NewTicker(outdatedGroupsPollInterval)
-		for {
-			select {
-			case <-ticker.C:
-				err := purgeOutdatedGroups(ctx, admin, lastSeen)
-				if err != nil {
-					log.Error().Err(err).Msgf("Failed to purge outdated groups")
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-
-	}()
-
-	return nil
-}
-
-// purgeOutdatedGroups мониторит и удаляет Consumer Groups, которые были пустыми на протяжении outdatedGroupsTimeLimit.
-func purgeOutdatedGroups(ctx context.Context, admin *kadm.Client, lastSeen map[string]time.Time) error {
-	describeGroups, err := admin.DescribeGroups(ctx)
-	groupsToDelete := make([]string, 0)
-
-	// Удаляем все outdated группы, которые были пустыми более outdatedGroupsTimeLimit.
-	for _, group := range describeGroups {
-		groupName := group.Group
-		if len(group.Members) > 0 {
-			lastSeen[groupName] = time.Now()
-		} else if _, ok := lastSeen[groupName]; !ok {
-			lastSeen[groupName] = time.Now()
-		} else if time.Since(lastSeen[groupName]) > outdatedGroupsTimeLimit {
-			groupsToDelete = append(groupsToDelete, groupName)
-		}
-	}
-
-	// Удаляем из Kafka.
-	if _, err = admin.DeleteGroups(ctx, groupsToDelete...); err != nil {
-		return fmt.Errorf("failed to delete groups: %w", err)
-	}
-
-	// Удаляем из памяти.
-	for _, groupName := range groupsToDelete {
-		delete(lastSeen, groupName)
-	}
-
-	// Удаляем группы, которых нет в Kafka, но при этом они сохранены у нас в памяти.
-	for groupName := range lastSeen {
-		if _, contains := describeGroups[groupName]; !contains {
-			delete(lastSeen, groupName)
-		}
-	}
-
-	return nil
 }

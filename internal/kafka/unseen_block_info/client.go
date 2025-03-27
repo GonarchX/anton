@@ -117,10 +117,10 @@ pollAgain:
 			}
 		}
 
-		/*err = c.client.CommitRecords(ctx, fetches.Records()...)
+		err = c.client.CommitRecords(ctx, fetches.Records()...)
 		if err != nil {
 			log.Error().Msgf("failed to commit records: %v\n", err)
 			goto pollAgain
-		}*/
+		}
 	}
 }

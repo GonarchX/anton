@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	broadcast "github.com/tonindexer/anton/internal/kafka/broadcast"
 	block "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
 	"github.com/xssnick/tonutils-go/ton"
@@ -25,6 +26,6 @@ type IndexerConfig struct {
 }
 
 type IndexerService interface {
-	Start() error
+	Start(ctx context.Context) error
 	Stop()
 }
