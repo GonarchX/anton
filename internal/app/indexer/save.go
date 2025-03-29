@@ -197,7 +197,7 @@ func (s *Service) uniqMessages(ctx context.Context, transactions []*core.Transac
 var lastLog = time.Now()
 
 // saveBlock сохраняет блок и все транзакции из него
-func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
+func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 	newBlocks := append([]*core.Block{master}, master.Shards...)
 
 	var newTransactions []*core.Transaction
@@ -232,7 +232,7 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
 		return s.insertData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
 	})
 	if err := errGroup.Wait(); err != nil {
-		panic(err)
+		return err
 	}
 
 	lvl := log.Debug()
@@ -241,10 +241,12 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
 		lastLog = time.Now()
 	}
 	lvl.Uint32("last_inserted_seq", master.SeqNo).Msg("inserted new block")
+
+	return nil
 }
 
 // saveBlockLoop сохраняет блоки
-func (s *Service) saveBlocksLoop(results <-chan *core.Block) {
+/*func (s *Service) saveBlocksLoop(results <-chan *core.Block) {
 	t := time.NewTicker(100 * time.Millisecond)
 	defer t.Stop()
 
@@ -266,3 +268,4 @@ func (s *Service) saveBlocksLoop(results <-chan *core.Block) {
 		s.saveBlock(context.Background(), b)
 	}
 }
+*/

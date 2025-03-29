@@ -105,8 +105,11 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 
 		// Сохраняем в бд.
-		s.saveBlock(ctx, txs)
-		return nil
+		err = s.saveBlock(ctx, txs)
+		if err != nil {
+			log.Error().Err(err).Msgf("failed to save block transactions")
+		}
+		return err
 	}
 	go s.UnseenBlocksTopicClient.ConsumeLoop(ctx, processBlock)
 

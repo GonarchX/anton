@@ -100,10 +100,6 @@ pollAgain:
 		group, fetchesCtx := errgroup.WithContext(context.Background())
 		group.SetLimit(c.WorkersNumber)
 
-		/*
-			В цикле запускаем горутины с ограничением по количеству
-			Если хотя бы одна горутина вернула ошибку, то останавливаем все остальные горутины и возвращаем ошибку
-		*/
 		iter := fetches.RecordIter()
 		for !iter.Done() && fetchesCtx.Err() == nil {
 			record := iter.Next()
