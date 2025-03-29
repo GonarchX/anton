@@ -198,7 +198,7 @@ var Command = &cli.Command{
 
 		kafkaSeedsStr := env.GetString("KAFKA_URL", "")
 		seeds := strings.Split(kafkaSeedsStr, ";")
-		unseenBlocksTopicClient, err := unseenBlocksKafka.New(seeds)
+		unseenBlocksTopicClient, err := unseenBlocksKafka.New(seeds, env.GetInt("UNSEEN_BLOCK_WORKERS", 4))
 		if err != nil {
 			return err
 		}
@@ -272,7 +272,7 @@ func createCallbacks(ctx context.Context, seeds []string, s *indexer.Service) ([
 
 	return []leaderelection.LeaderCallback{
 		leader_election_callbacks.RemoveUnusedBroadcastTopics(ctx, client),
-		//leader_election_callbacks.ProduceUnseenBlocks(ctx, s),
+		leader_election_callbacks.ProduceUnseenBlocks(ctx, s),
 	}, nil
 }
 

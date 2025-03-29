@@ -8,6 +8,7 @@ import (
 	desc "github.com/tonindexer/anton/internal/generated/proto/anton/api"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/xssnick/tonutils-go/ton"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -17,10 +18,11 @@ const (
 )
 
 type UnseenBlocksTopicClient struct {
-	client *kgo.Client
+	client        *kgo.Client
+	WorkersNumber int // Число горутин, которые будут обрабатывать сообщения из топика.
 }
 
-func New(seeds []string) (*UnseenBlocksTopicClient, error) {
+func New(seeds []string, workersNumber int) (*UnseenBlocksTopicClient, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(seeds...),
 		kgo.ConsumerGroup(unseenBlocksConsumerGroup),
@@ -32,7 +34,8 @@ func New(seeds []string) (*UnseenBlocksTopicClient, error) {
 		return nil, err
 	}
 	return &UnseenBlocksTopicClient{
-		client: client,
+		client:        client,
+		WorkersNumber: workersNumber,
 	}, err
 }
 
@@ -94,41 +97,40 @@ pollAgain:
 			goto pollAgain
 		}
 
-		//group := errgroup.Group{
-		//group.SetLimit(4)
+		group, fetchesCtx := errgroup.WithContext(context.Background())
+		group.SetLimit(c.WorkersNumber)
 
 		/*
 			В цикле запускаем горутины с ограничением по количеству
 			Если хотя бы одна горутина вернула ошибку, то останавливаем все остальные горутины и возвращаем ошибку
 		*/
 		iter := fetches.RecordIter()
-		for !iter.Done() {
+		for !iter.Done() && fetchesCtx.Err() == nil {
 			record := iter.Next()
-			blockInfoProto := &desc.UnseenBlockInfo{}
-			err = proto.Unmarshal(record.Value, blockInfoProto)
-			if err != nil {
-				log.Error().Err(err).Msgf("failed to decode block info")
-				goto pollAgain
-			}
-
-			blockInfo := MapFromProto(blockInfoProto)
-
-			log.Debug().Msg(fmt.Sprintf("consume block with master_seq: %d", blockInfo.Master.SeqNo))
-
-			shardsPtrs := make([]*ton.BlockIDExt, 0, len(blockInfo.Shards))
-			for _, shard := range blockInfo.Shards {
-				shardsPtrs = append(shardsPtrs, shard)
-			}
-
 			// Логика обработки блоков.
-			/*group.Go(func() error {
+			group.Go(func() error {
+				blockInfoProto := &desc.UnseenBlockInfo{}
+				err = proto.Unmarshal(record.Value, blockInfoProto)
+				if err != nil {
+					return fmt.Errorf("failed to decode block info: %w", err)
+				}
+
+				blockInfo := MapFromProto(blockInfoProto)
+				log.Debug().Msg(fmt.Sprintf("consume block with master_seq: %d", blockInfo.Master.SeqNo))
+
+				shardsPtrs := make([]*ton.BlockIDExt, 0, len(blockInfo.Shards))
+				for _, shard := range blockInfo.Shards {
+					shardsPtrs = append(shardsPtrs, shard)
+				}
+
 				return processBlock(ctx, blockInfo.Master, shardsPtrs)
 			})
-			err = group.Wait()*/
-			err = processBlock(ctx, blockInfo.Master, shardsPtrs)
-			if err != nil { // TODO: если нужно падать, то можно добавить отдельную ErrTerminate ошибку
-				goto pollAgain
-			}
+		}
+
+		err = group.Wait()
+		if err != nil { // TODO: если нужно падать, то можно добавить отдельную ErrTerminate ошибку
+			log.Error().Err(err).Msgf("failed to process unseen block info")
+			goto pollAgain
 		}
 
 		err = c.client.CommitRecords(ctx, fetches.Records()...)

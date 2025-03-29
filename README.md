@@ -118,22 +118,23 @@ cp .env.example .env
 nano .env
 ```
 
-| Name                  | Description                         | Default | Example                                                            |
-|-----------------------|-------------------------------------|---------|--------------------------------------------------------------------|
-| `DB_NAME`             | Database name                       |         | idx                                                                |
-| `DB_USERNAME`         | Database username                   |         | user                                                               |
-| `DB_PASSWORD`         | Database password                   |         | pass                                                               |
-| `DB_CH_URL`           | Clickhouse URL to connect to        |         | clickhouse://clickhouse:9000/db_name?sslmode=disable               |
-| `DB_PG_URL`           | PostgreSQL URL to connect to        |         | postgres://username:password@postgres:5432/db_name?sslmode=disable |
-| `FROM_BLOCK`          | Master chain seq_no to start from   | 1       | 23532000                                                           |
-| `WORKERS`             | Number of indexer workers           | 4       | 8                                                                  |
-| `RESCAN_WORKERS`      | Number of rescan workers            | 4       | 8                                                                  |
-| `RESCAN_SELECT_LIMIT` | Number of rows to fetch for rescan  | 3000    | 1000                                                               |
-| `LITESERVERS`         | Lite servers to connect to          |         | 135.181.177.59:53312 aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=  |
-| `DEBUG_LOGS`          | Debug logs enabled                  | false   | true                                                               |
-| `REDIS_ADDRESS`       | Redis address                       |         | localhost:6379                                                     |
-| `REDIS_PASSWORD`      | Redis password                      |         | pass                                                               |
-| `KAFKA_URL`           | List of Kafka brokers to connect to |         | localhost:9092;localhost:9093                                      |
+| Name                   | Description                                              | Default | Example                                                            |
+|------------------------|----------------------------------------------------------|---------|--------------------------------------------------------------------|
+| `DB_NAME`              | Database name                                            |         | idx                                                                |
+| `DB_USERNAME`          | Database username                                        |         | user                                                               |
+| `DB_PASSWORD`          | Database password                                        |         | pass                                                               |
+| `DB_CH_URL`            | Clickhouse URL to connect to                             |         | clickhouse://clickhouse:9000/db_name?sslmode=disable               |
+| `DB_PG_URL`            | PostgreSQL URL to connect to                             |         | postgres://username:password@postgres:5432/db_name?sslmode=disable |
+| `FROM_BLOCK`           | Master chain seq_no to start from                        | 1       | 23532000                                                           |
+| `WORKERS`              | Number of indexer workers                                | 4       | 8                                                                  |
+| `UNSEEN_BLOCK_WORKERS` | Number of workers that process unseen blocks from Kafka. | 4       | 8                                                                  |
+| `RESCAN_WORKERS`       | Number of rescan workers                                 | 4       | 8                                                                  |
+| `RESCAN_SELECT_LIMIT`  | Number of rows to fetch for rescan                       | 3000    | 1000                                                               |
+| `LITESERVERS`          | Lite servers to connect to                               |         | 135.181.177.59:53312 aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=  |
+| `DEBUG_LOGS`           | Debug logs enabled                                       | false   | true                                                               |
+| `REDIS_ADDRESS`        | Redis address                                            |         | localhost:6379                                                     |
+| `REDIS_PASSWORD`       | Redis password                                           |         | pass                                                               |
+| `KAFKA_URL`            | List of Kafka brokers to connect to                      |         | localhost:9092;localhost:9093                                      |
 
 ### Building
 
@@ -294,7 +295,7 @@ docker compose exec web anton label --tonscan
 Run configuration
 
 ```
-Environment: DB_CH_URL=clickhouse://user:pass@localhost:9000/ton?sslmode=disable;DB_PG_URL=postgres://user:pass@localhost:5432/ton?sslmode=disable;DEBUG_LOGS=false;FROM_BLOCK=25000000;LITESERVERS=135.181.177.59:53312|aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=;RESCAN_SELECT_LIMIT=1000;RESCAN_WORKERS=4;WORKERS=4;DYLD_LIBRARY_PATH=/usr/local/lib:$$DYLD_LIBRARY_PATH
+Environment: DB_CH_URL=clickhouse://user:pass@localhost:9000/ton?sslmode=disable;DB_PG_URL=postgres://user:pass@localhost:5432/ton?sslmode=disable;DEBUG_LOGS=false;FROM_BLOCK=25000000;LITESERVERS=135.181.177.59:53312|aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=;RESCAN_SELECT_LIMIT=1000;UNSEEN_BLOCK_WORKERS=8;WORKERS=4;DYLD_LIBRARY_PATH=/usr/local/lib:$$DYLD_LIBRARY_PATH
 Program arguments: indexer --contracts-dir ./abi/known/
 ```
 
