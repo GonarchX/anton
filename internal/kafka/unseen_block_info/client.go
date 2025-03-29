@@ -25,6 +25,7 @@ func New(seeds []string) (*UnseenBlocksTopicClient, error) {
 		kgo.SeedBrokers(seeds...),
 		kgo.ConsumerGroup(unseenBlocksConsumerGroup),
 		kgo.ConsumeTopics(unseenBlocksTopic),
+		kgo.FetchMaxBytes(10<<10), // 10kb ~ 40 записей
 		kgo.DisableAutoCommit(),
 	)
 	if err != nil {
@@ -85,12 +86,21 @@ pollAgain:
 			return fetches, nil
 		}
 
+		// Ретраи нужны, чтобы добавить задержку перед следующим получением записей из Kafka,
+		// если нам не удалось их получить с первого раза.
 		fetches, err := backoff.Retry(ctx, pollFetches, backoff.WithMaxElapsedTime(10))
 		if err != nil {
 			log.Error().Err(err).Msgf("failed to poll fetches")
 			goto pollAgain
 		}
 
+		//group := errgroup.Group{
+		//group.SetLimit(4)
+
+		/*
+			В цикле запускаем горутины с ограничением по количеству
+			Если хотя бы одна горутина вернула ошибку, то останавливаем все остальные горутины и возвращаем ошибку
+		*/
 		iter := fetches.RecordIter()
 		for !iter.Done() {
 			record := iter.Next()
@@ -110,7 +120,11 @@ pollAgain:
 				shardsPtrs = append(shardsPtrs, shard)
 			}
 
-			// Получаем все транзакции блока.
+			// Логика обработки блоков.
+			/*group.Go(func() error {
+				return processBlock(ctx, blockInfo.Master, shardsPtrs)
+			})
+			err = group.Wait()*/
 			err = processBlock(ctx, blockInfo.Master, shardsPtrs)
 			if err != nil { // TODO: если нужно падать, то можно добавить отдельную ErrTerminate ошибку
 				goto pollAgain

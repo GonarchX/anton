@@ -13,7 +13,7 @@ import (
 
 const (
 	broadcastMessagesTopic               = "broadcast-messages"
-	broadcastMessagesConsumerGroupPrefix = "broadcast-messages-consumer-"
+	BroadcastMessagesConsumerGroupPrefix = "broadcast-messages-consumer-"
 )
 
 type BroadcastTopicClient struct {
@@ -21,7 +21,7 @@ type BroadcastTopicClient struct {
 }
 
 func New(ctx context.Context, seeds []string, podID string) (*BroadcastTopicClient, error) {
-	consumerGroup := broadcastMessagesConsumerGroupPrefix + podID // Для каждого пода создаем свою собственную группу.
+	consumerGroup := BroadcastMessagesConsumerGroupPrefix + podID // Для каждого пода создаем свою собственную группу.
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(seeds...),
 		kgo.ConsumerGroup(consumerGroup),

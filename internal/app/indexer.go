@@ -2,11 +2,11 @@ package app
 
 import (
 	"context"
+
+	"github.com/tonindexer/anton/internal/core/repository"
 	broadcast "github.com/tonindexer/anton/internal/kafka/broadcast"
 	block "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
 	"github.com/xssnick/tonutils-go/ton"
-
-	"github.com/tonindexer/anton/internal/core/repository"
 )
 
 type IndexerConfig struct {

@@ -4,6 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
 	"github.com/allisson/go-env"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -32,11 +38,6 @@ import (
 	"github.com/xssnick/tonutils-go/ton"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
-	"net"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
 )
 
 func getAllKnownContractFilenames(contractsDir string) (res []string, err error) {
@@ -271,7 +272,7 @@ func createCallbacks(ctx context.Context, seeds []string, s *indexer.Service) ([
 
 	return []leaderelection.LeaderCallback{
 		leader_election_callbacks.RemoveUnusedBroadcastTopics(ctx, client),
-		leader_election_callbacks.ProduceUnseenBlocks(ctx, s),
+		//leader_election_callbacks.ProduceUnseenBlocks(ctx, s),
 	}, nil
 }
 
