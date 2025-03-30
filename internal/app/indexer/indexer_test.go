@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"github.com/stretchr/testify/require"
-	"github.com/tonindexer/anton/internal/app/indexer/kafka"
+	kafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
+
 	"github.com/xssnick/tonutils-go/ton"
 	"testing"
 )
@@ -26,14 +27,14 @@ func deserialize(data []byte) (kafka.UnseenBlockInfo, error) {
 
 func TestSerialization(t *testing.T) {
 	original := kafka.UnseenBlockInfo{
-		Master: ton.BlockIDExt{
+		Master: &ton.BlockIDExt{
 			Workchain: 0,
 			Shard:     9223372036854775807,
 			SeqNo:     100,
 			RootHash:  []byte{0xAA, 0xBB, 0xCC},
 			FileHash:  []byte{0x11, 0x22, 0x33},
 		},
-		Shards: []ton.BlockIDExt{
+		Shards: []*ton.BlockIDExt{
 			{
 				Workchain: -1,
 				Shard:     111,

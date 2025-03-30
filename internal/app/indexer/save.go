@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"sort"
 	"time"
 
@@ -29,7 +30,7 @@ func (s *Service) insertData(
 		_ = dbTx.Rollback()
 	}()
 
-	for _, message := range msg {
+	/*for _, message := range msg {
 		err := s.Parser.ParseMessagePayload(ctx, message)
 		if errors.Is(err, app.ErrImpossibleParsing) {
 			continue
@@ -45,7 +46,7 @@ func (s *Service) insertData(
 				Msg("parse message payload")
 		}
 	}
-
+	*/
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddAccountStates(%d)", len(acc))
 		return s.accountRepo.AddAccountStates(ctx, dbTx, acc)
@@ -70,7 +71,7 @@ func (s *Service) insertData(
 
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddBlocks(%d)", len(b))
-		return s.blockRepo.AddBlocks(ctx, dbTx, b)
+		return s.BlockRepo.AddBlocks(ctx, dbTx, b)
 	}(); err != nil {
 		return errors.Wrap(err, "add blocks")
 	}
@@ -147,7 +148,7 @@ func (s *Service) getMessageSource(ctx context.Context, msg *core.Message) (skip
 		return false
 	}
 
-	blocks, err := s.blockRepo.CountMasterBlocks(ctx)
+	blocks, err := s.BlockRepo.CountMasterBlocks(ctx)
 	if err != nil {
 		panic(errors.Wrap(err, "count masterchain blocks"))
 	}
@@ -196,7 +197,7 @@ func (s *Service) uniqMessages(ctx context.Context, transactions []*core.Transac
 var lastLog = time.Now()
 
 // saveBlock сохраняет блок и все транзакции из него
-func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
+func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 	newBlocks := append([]*core.Block{master}, master.Shards...)
 
 	var newTransactions []*core.Transaction
@@ -204,8 +205,34 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
 		newTransactions = append(newTransactions, newBlocks[i].Transactions...)
 	}
 
-	if err := s.insertData(ctx, s.uniqAccounts(newTransactions), s.uniqMessages(ctx, newTransactions), newTransactions, newBlocks); err != nil {
-		panic(err)
+	// Добавляем дополнительную информацию в сообщения путем парсинга их содержимого.
+	uniqMsgs := s.uniqMessages(ctx, newTransactions)
+	for _, message := range uniqMsgs {
+		err := s.Parser.ParseMessagePayload(ctx, message)
+		if errors.Is(err, app.ErrImpossibleParsing) {
+			continue
+		}
+		if err != nil {
+			log.Error().Err(err).
+				Hex("msg_hash", message.Hash).
+				Hex("src_tx_hash", message.SrcTxHash).
+				Str("src_addr", message.SrcAddress.String()).
+				Hex("dst_tx_hash", message.DstTxHash).
+				Str("dst_addr", message.DstAddress.String()).
+				Uint32("op_id", message.OperationID).
+				Msg("parse message payload")
+		}
+	}
+
+	errGroup := errgroup.Group{}
+	errGroup.Go(func() error {
+		return s.broadcastNewData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
+	})
+	errGroup.Go(func() error {
+		return s.insertData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
+	})
+	if err := errGroup.Wait(); err != nil {
+		return err
 	}
 
 	lvl := log.Debug()
@@ -214,10 +241,12 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) {
 		lastLog = time.Now()
 	}
 	lvl.Uint32("last_inserted_seq", master.SeqNo).Msg("inserted new block")
+
+	return nil
 }
 
 // saveBlockLoop сохраняет блоки
-func (s *Service) saveBlocksLoop(results <-chan *core.Block) {
+/*func (s *Service) saveBlocksLoop(results <-chan *core.Block) {
 	t := time.NewTicker(100 * time.Millisecond)
 	defer t.Stop()
 
@@ -239,3 +268,4 @@ func (s *Service) saveBlocksLoop(results <-chan *core.Block) {
 		s.saveBlock(context.Background(), b)
 	}
 }
+*/

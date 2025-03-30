@@ -1,4 +1,4 @@
-package leaderelection
+package leader_election
 
 import (
 	"errors"

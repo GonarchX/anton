@@ -4,6 +4,96 @@ package blockinfo;
 
 option go_package = "anton/api";
 
+service ExampleService {
+  rpc V1GetDataStream(V1GetDataStreamRequest) returns (stream V1GetDataStreamResponse);
+}
+
+message V1GetDataStreamRequest {
+  // Идентификатор подписчика.
+  string id = 1;
+}
+
+message V1GetDataStreamResponse {
+  oneof data {
+    AccountState account_state = 1;
+  }
+}
+
+// AccountStatus enum
+enum AccountStatus {
+  UNINIT = 0;
+  ACTIVE = 1;
+  FROZEN = 2;
+  NON_EXIST = 3;
+}
+
+// LabelCategory enum
+enum LabelCategory {
+  CENTRALIZED_EXCHANGE = 0;
+  SCAM = 1;
+}
+
+// Address message
+message Address {
+  bytes value = 1; // 33 bytes
+}
+
+// AddressLabel message
+message AddressLabel {
+  Address address = 1;
+  string name = 2;
+  repeated LabelCategory categories = 3;
+}
+
+// NFTContentData message
+message NFTContentData {
+  string content_uri = 1;
+  string content_name = 2;
+  string content_description = 3;
+  string content_image = 4;
+  bytes content_image_data = 5;
+}
+
+// FTWalletData message
+message FTWalletData {
+  string jetton_balance = 1;
+}
+
+// AccountState message
+message AccountState {
+  Address address = 1;
+  AddressLabel label = 2;
+  int32 workchain = 3;
+  int64 shard = 4;
+  uint32 block_seq_no = 5;
+  bool is_active = 6;
+//  AccountStatus status = 7;
+//  string balance = 8;
+//  uint64 last_tx_lt = 9;
+//  bytes last_tx_hash = 10;
+//  bytes state_hash = 11;
+//  bytes code = 12;
+//  bytes code_hash = 13;
+//  bytes data = 14;
+//  bytes data_hash = 15;
+//  bytes libraries = 16;
+//  repeated int32 get_method_hashes = 17;
+//  repeated string types = 18;
+//  Address owner_address = 19;
+//  Address minter_address = 20;
+//  bool fake = 21;
+//  map<string, executed_methods> executed_get_methods = 22;
+//  NFTContentData nft_content_data = 23;
+//  FTWalletData ft_wallet_data = 24;
+//  string updated_at = 25;
+}
+
+message executed_methods{
+  repeated string methods = 1;
+}
+
+
+// Трансляция данных между лидер узлом и узлами обработчиками.
 message BlockInfo {
   int32 workchain = 1;
   int64 shard = 2;

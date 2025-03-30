@@ -1,4 +1,4 @@
-package leaderelection
+package leader_election
 
 import (
 	"context"
@@ -22,6 +22,11 @@ import (
 const (
 	NodeID1 = "node-1"
 	NodeID2 = "node-2"
+
+	// Этот адрес Redis использует по-умолчанию.
+	defaultRedisContainerPort = "6379"
+	testRedisContainerPort    = "16379"
+	testRedisContainerName    = "redis-integration-test"
 )
 
 // LeaderElectionResult результаты изменения состояний узлов.
@@ -41,21 +46,21 @@ func setupRedisContainer(cli *client.Client) (string, error) {
 		&docker.Config{
 			Image: "redis:7.0", // Используем образ Redis.
 			ExposedPorts: map[nat.Port]struct{}{
-				"6379/tcp": {}, // Порт Redis.
+				testRedisContainerPort + "/tcp": {}, // Порт Redis.
 			},
 			Cmd: []string{"redis-server", "--appendonly", "yes"},
 		},
 		&docker.HostConfig{
 			PortBindings: nat.PortMap{
-				"6379/tcp": []nat.PortBinding{
+				defaultRedisContainerPort + "/tcp": []nat.PortBinding{
 					{
 						HostIP:   "0.0.0.0",
-						HostPort: "6379",
+						HostPort: testRedisContainerPort,
 					},
 				},
 			},
 		},
-		nil, nil, "redis-integration-test")
+		nil, nil, testRedisContainerName)
 	if err != nil {
 		return "", fmt.Errorf("ошибка при создании контейнера: %v", err)
 	}
@@ -70,7 +75,7 @@ func setupRedisContainer(cli *client.Client) (string, error) {
 
 func connectToRedis() (*redis.Client, error) {
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     "localhost:" + testRedisContainerPort,
 		Password: "",
 	})
 
@@ -85,8 +90,8 @@ func connectToRedis() (*redis.Client, error) {
 	return rdb, nil
 }
 
-func createCallbacks(ctx context.Context, leResults chan LeaderElectionResult, nodeName string) LeaderCallbacks {
-	callbacks := LeaderCallbacks{
+func createCallbacks(ctx context.Context, leResults chan LeaderElectionResult, nodeName string) LeaderCallback {
+	callbacks := LeaderCallback{
 		OnStartLeading: func() {
 			select {
 			case leResults <- LeaderElectionResult{
@@ -118,7 +123,7 @@ func runLeaderElector(ctx context.Context, nodeID string, leResults chan LeaderE
 		RenewalPeriod:   DefaultRenewalPeriod,
 	}
 	callbacks := createCallbacks(ctx, leResults, config.NodeID)
-	le := NewLeaderElector(config, callbacks, rdb)
+	le := NewLeaderElector(config, rdb, callbacks)
 	go le.Run(ctx)
 	return le
 }
@@ -178,6 +183,7 @@ func waitForLeader(t *testing.T, ctx context.Context, nodes ...*LeaderElector) {
 	_, err := backoff.Retry(ctx, func() (struct{}, error) {
 		for _, node := range nodes {
 			if node.isLeader.Load() {
+				log.Info().Str("NodeID", node.config.NodeID).Msg("Вернул лидерство")
 				return struct{}{}, nil
 			}
 		}
@@ -204,8 +210,9 @@ func TestLeaderElection_RedisDown(t *testing.T) {
 		},
 		{
 			// Запущен лидер и ведомый узлы. Редис выходит из строя на electionTimeout. Лидерство теряется, потом возвращается лидером.
-			name:     "electionTimeout downtime",
-			downtime: DefaultElectionTimeout,
+			name: "electionTimeout downtime",
+			// Добавляем RenewalPeriod, чтобы лидер успел выполнить повторный запрос к Redis и потерять лидерство.
+			downtime: DefaultElectionTimeout + DefaultRenewalPeriod,
 			assertResults: func(results []LeaderElectionResult) {
 				for _, result := range results {
 					log.Info().Msgf("%v - %v \n", result.NodeID, result.IsLeader)
@@ -227,8 +234,9 @@ func TestLeaderElection_RedisDown(t *testing.T) {
 		},
 		{
 			// Запущен лидер и ведомый узлы. Редис выходит из строя на leaderTTL. Лидерство теряется, потом один из узлов становится лидером.
-			name:     "leaderTTL downtime",
-			downtime: DefaultLeaderTTL,
+			name: "leaderTTL downtime",
+			// Добавляем RenewalPeriod, чтобы лидер успел выполнить повторный запрос к Redis и потерять лидерство.
+			downtime: DefaultLeaderTTL + DefaultRenewalPeriod,
 			assertResults: func(results []LeaderElectionResult) {
 
 				require.Equal(t, 3, len(results))

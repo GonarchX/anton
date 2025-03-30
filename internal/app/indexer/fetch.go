@@ -15,9 +15,9 @@ import (
 	"github.com/tonindexer/anton/internal/core"
 )
 
-// getUnseenBlocks достает блоки, между текущим и предыдущим стейтами master chain'a
+// GetUnseenBlocks достает блоки, между текущим и предыдущим стейтами master chain'a
 // Note: если не получилось достать блоки из мастера сразу, то ждем до 10 секунд в ожидании нового блока в blockchain'e
-func (s *Service) getUnseenBlocks(ctx context.Context, seq uint32) (master *ton.BlockIDExt, shards []*ton.BlockIDExt, err error) {
+func (s *Service) GetUnseenBlocks(ctx context.Context, seq uint32) (master *ton.BlockIDExt, shards []*ton.BlockIDExt, err error) {
 	master, shards, err = s.Fetcher.UnseenBlocks(ctx, seq)
 	if err != nil {
 		if !errors.Is(err, ton.ErrBlockNotFound) && !(strings.Contains(err.Error(), "block is not applied")) {
@@ -153,7 +153,7 @@ func (s *Service) fetchMaster(seq uint32) *core.Block {
 	for {
 		ctx := context.Background()
 
-		master, shards, err := s.getUnseenBlocks(ctx, seq)
+		master, shards, err := s.GetUnseenBlocks(ctx, seq)
 		if err != nil {
 			log.Error().Err(err).Uint32("master_seq", seq).Msg("get unseen blocks")
 			time.Sleep(time.Second)

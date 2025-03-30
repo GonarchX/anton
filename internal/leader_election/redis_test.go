@@ -1,4 +1,4 @@
-package leaderelection
+package leader_election
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/tonindexer/anton/internal/redis_leaderelection/mocks"
+	"github.com/tonindexer/anton/internal/leader_election/mocks"
 	"go.uber.org/mock/gomock"
 )
 
@@ -95,12 +95,12 @@ func TestLeaderElector_TryAcquireLeadership(t *testing.T) {
 
 			var onStartCallbackCalls int
 			var onStopCallbackCalls int
-			callbacks := LeaderCallbacks{
+			callbacks := LeaderCallback{
 				OnStartLeading: func() { onStartCallbackCalls++ },
 				OnStopLeading:  func() { onStopCallbackCalls++ },
 			}
 
-			leaderElector := NewLeaderElector(config, callbacks, mockLockClient)
+			leaderElector := NewLeaderElector(config, mockLockClient, callbacks)
 
 			ctx := context.Background()
 
