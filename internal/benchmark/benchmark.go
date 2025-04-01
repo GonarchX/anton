@@ -3,7 +3,6 @@ package benchmark
 import (
 	"context"
 	"fmt"
-	redisutils "github.com/tonindexer/anton/redis"
 	"sync/atomic"
 	"time"
 
@@ -21,23 +20,16 @@ const (
 	targetBlockIDEnv         = "BENCHMARK_TARGET_BLOCK_ID"
 
 	// Redis keys.
-	StartBenchmarkKey      = "BENCHMARK_Start"
-	StartBenchmarkTimeKey  = "BENCHMARK_StartTime"
-	FinishBenchmarkTimeKey = "BENCHMARK_FinishTime"
-	finishedWorkersKey     = "BENCHMARK_FinishedWorkers"
+	StartBenchmarkKey  = "BENCHMARK_Start"
+	FinishedWorkersKey = "BENCHMARK_FinishedWorkers"
 )
 
 var rdb *redis.Client
 var isFinished *atomic.Bool
 
-func PrepareBenchmark(ctx context.Context) error {
-	rdbClient, err := redisutils.New(ctx)
-	if err != nil {
-		return err
-	}
-	rdb = rdbClient
+func PrepareBenchmark(client *redis.Client) {
 	isFinished = &atomic.Bool{}
-	return nil
+	rdb = client
 }
 
 // TargetBlockID возвращает финальный блок до которого необходимо дойти в рамках бенчмарка.
@@ -76,7 +68,7 @@ func WaitForStart(ctx context.Context) error {
 		}
 
 		if val != "true" {
-			return struct{}{}, nil
+			return struct{}{}, errors.New("benchmark signal not true")
 		}
 
 		return struct{}{}, nil
@@ -92,7 +84,7 @@ func WaitForWorkers(ctx context.Context) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxInterval = 5 * time.Second
 	_, err := backoff.Retry(ctx, func() (struct{}, error) {
-		val, err := rdb.Get(ctx, finishedWorkersKey).Int()
+		val, err := rdb.Get(ctx, FinishedWorkersKey).Int()
 		if err != nil {
 			return struct{}{}, fmt.Errorf("failed to get finished workers count from Redis: %w", err)
 		}
@@ -115,32 +107,12 @@ func IncrementFinishedWorkersCount(ctx context.Context) error {
 		return nil
 	}
 
-	finished, err := rdb.Incr(ctx, finishedWorkersKey).Result()
+	finished, err := rdb.Incr(ctx, FinishedWorkersKey).Result()
 	if err != nil {
 		log.Err(err).Msgf("Failed to increment counter")
 		return err
 	}
 
 	log.Info().Int64("finished_workers", finished).Msgf("Count of finished worker successfully incremented")
-	return nil
-}
-
-func Start(ctx context.Context) error {
-	_, err := rdb.Set(ctx, StartBenchmarkTimeKey, time.Now(), 0).Result()
-	if err != nil {
-		log.Err(err).Msgf("Failed to set start benchmark time")
-		return err
-	}
-
-	return nil
-}
-
-func Finish(ctx context.Context) error {
-	_, err := rdb.Set(ctx, FinishBenchmarkTimeKey, time.Now(), 0).Result()
-	if err != nil {
-		log.Err(err).Msgf("Failed to set finish benchmark time")
-		return err
-	}
-
 	return nil
 }

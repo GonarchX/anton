@@ -7,9 +7,9 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"github.com/rs/zerolog/log"
 	"github.com/tonindexer/anton/internal/app/indexer"
+	"github.com/tonindexer/anton/internal/benchmark"
 	"github.com/tonindexer/anton/internal/core"
 	leaderelection "github.com/tonindexer/anton/internal/leader_election"
-	"github.com/tonindexer/anton/internal/leader_election/benchmark"
 	"sync/atomic"
 	"time"
 )

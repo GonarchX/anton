@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/rs/zerolog/log"
+	"github.com/tonindexer/anton/internal/benchmark"
 	desc "github.com/tonindexer/anton/internal/generated/proto/anton/api"
-	"github.com/tonindexer/anton/internal/leader_election/benchmark"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/xssnick/tonutils-go/ton"
 	"golang.org/x/sync/errgroup"
@@ -140,10 +140,13 @@ pollAgain:
 			goto pollAgain
 		}
 
-		err = c.client.CommitRecords(ctx, fetches.Records()...)
-		if err != nil {
-			log.Error().Msgf("failed to commit records: %v\n", err)
-			goto pollAgain
+		if !benchmark.Enabled() {
+			// Во время бенчмарка ничего не комитим, чтобы можно было перезапустить бенчмарк и начать обработку заново.
+			err = c.client.CommitRecords(ctx, fetches.Records()...)
+			if err != nil {
+				log.Error().Msgf("failed to commit records: %v\n", err)
+				goto pollAgain
+			}
 		}
 	}
 }

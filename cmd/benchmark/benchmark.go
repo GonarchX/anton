@@ -3,32 +3,29 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/redis/go-redis/v9"
+	"github.com/tonindexer/anton/internal/benchmark"
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/tonindexer/anton/internal/leader_election/benchmark"
 	redisutils "github.com/tonindexer/anton/redis"
 )
 
 func main() {
 	ctx := context.Background()
-	client, err := redisutils.New(ctx)
+	rdb, err := redisutils.New(ctx)
 	if err != nil {
 		panic(err)
 	}
+	benchmark.PrepareBenchmark(rdb)
 
 	// Устанавливаем BENCHMARK_Start = true
-	err = client.Set(ctx, benchmark.StartBenchmarkKey, "true", 0).Err()
+	err = rdb.Set(ctx, benchmark.StartBenchmarkKey, "true", 0).Err()
 	if err != nil {
 		log.Err(err).Msgf("Failed to set %s", benchmark.StartBenchmarkKey)
 	}
-	defer func() {
-		err = client.Set(ctx, benchmark.StartBenchmarkKey, "false", 0).Err()
-		if err != nil {
-			log.Err(err).Msgf("Failed to set %s", benchmark.StartBenchmarkKey)
-		}
-		fmt.Println("BENCHMARK_Start reset to false")
-	}()
+	defer Reset(ctx, rdb)
+
 	fmt.Println("BENCHMARK_Start set to true")
 
 	startTime := time.Now()
@@ -41,4 +38,13 @@ func main() {
 
 	duration := finishTime.Sub(startTime)
 	fmt.Printf("Total benchmark time: %v\n", duration)
+}
+
+func Reset(ctx context.Context, rdb *redis.Client) {
+	_, err := rdb.Del(ctx, benchmark.StartBenchmarkKey, benchmark.FinishedWorkersKey).Result()
+	if err != nil {
+		log.Err(err).Msgf("Failed to reset benchmark")
+	}
+
+	fmt.Println("Benchmark was reset")
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/redis/go-redis/v9"
+	"github.com/tonindexer/anton/internal/benchmark"
 	"net"
 	"os"
 	"os/signal"
@@ -28,7 +30,6 @@ import (
 	broadcastKafka "github.com/tonindexer/anton/internal/kafka/broadcast"
 	unseenBlocksKafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
 	leaderelection "github.com/tonindexer/anton/internal/leader_election"
-	"github.com/tonindexer/anton/internal/leader_election/benchmark"
 	leader_election_callbacks "github.com/tonindexer/anton/internal/leader_election/callbacks"
 	broadcaster "github.com/tonindexer/anton/internal/proto/v1/get_data_stream"
 	redisutils "github.com/tonindexer/anton/redis"
@@ -220,18 +221,20 @@ var Command = &cli.Command{
 			BroadcastMessagesTopicClient: broadcastTopicClient,
 		})
 
+		rdb, err := redisutils.New(appCtx)
+		if err != nil {
+			return err
+		}
+
 		if benchmark.Enabled() {
-			err := benchmark.PrepareBenchmark(appCtx)
-			if err != nil {
-				return err
-			}
+			benchmark.PrepareBenchmark(rdb)
 		}
 
 		leaderCallbacks, err := createCallbacks(appCtx, seeds, i)
 		if err != nil {
 			return err
 		}
-		le, err := createLeaderElector(appCtx, nodeID, leaderCallbacks)
+		le, err := createLeaderElector(appCtx, nodeID, leaderCallbacks, rdb)
 		if err != nil {
 			return err
 		}
@@ -282,9 +285,6 @@ func createCallbacks(ctx context.Context, seeds []string, s *indexer.Service) ([
 		leader_election_callbacks.RemoveUnusedBroadcastTopics(ctx, client),
 		leader_election_callbacks.ProduceUnseenBlocks(ctx, s),
 	}
-	if benchmark.Enabled() {
-		callbacks = append(callbacks, leader_election_callbacks.RunWithBenchmark(ctx))
-	}
 	return callbacks, nil
 }
 
@@ -292,12 +292,8 @@ func createLeaderElector(
 	ctx context.Context,
 	nodeID string,
 	callbacks []leaderelection.LeaderCallback,
+	rdb *redis.Client,
 ) (*leaderelection.LeaderElector, error) {
-	rdb, err := redisutils.New(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	config := &leaderelection.Config{
 		LockKey:         leaderelection.DefaultLeaderKey,
 		NodeID:          nodeID,
