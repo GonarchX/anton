@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/redis/go-redis/v9"
 	"github.com/tonindexer/anton/internal/benchmark"
 	"time"
@@ -26,7 +25,7 @@ func main() {
 	}
 	defer Reset(ctx, rdb)
 
-	fmt.Println("BENCHMARK_Start set to true")
+	log.Info().Msgf("BENCHMARK_Start set to true")
 
 	startTime := time.Now()
 	err = benchmark.WaitForWorkers(ctx)
@@ -37,7 +36,7 @@ func main() {
 	finishTime := time.Now()
 
 	duration := finishTime.Sub(startTime)
-	fmt.Printf("Total benchmark time: %v\n", duration)
+	log.Info().Msgf("Total benchmark time: %v", duration)
 }
 
 func Reset(ctx context.Context, rdb *redis.Client) {
@@ -46,5 +45,5 @@ func Reset(ctx context.Context, rdb *redis.Client) {
 		log.Err(err).Msgf("Failed to reset benchmark")
 	}
 
-	fmt.Println("Benchmark was reset")
+	log.Info().Msgf("Benchmark was reset")
 }

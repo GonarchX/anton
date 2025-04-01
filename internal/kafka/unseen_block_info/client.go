@@ -127,7 +127,8 @@ pollAgain:
 					shardsPtrs = append(shardsPtrs, shard)
 				}
 
-				if benchmark.Enabled() && blockInfo.Master.SeqNo > benchmark.TargetBlockID() {
+				if benchmark.Enabled() && blockInfo.Master.SeqNo >= benchmark.TargetBlockID() {
+					log.Info().Msg("Finish consuming due to reaching target block ID")
 					return benchmark.IncrementFinishedWorkersCount(ctx)
 				}
 				return processBlock(ctx, blockInfo.Master, shardsPtrs)

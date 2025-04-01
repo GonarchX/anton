@@ -82,6 +82,10 @@ func ProduceBlockIdsLoop(ctx context.Context, s *indexer.Service, fromBlock uint
 				case <-ctx.Done():
 					return
 				case id := <-blockIds:
+					if benchmark.Enabled() && id > benchmark.TargetBlockID() {
+						log.Info().Msg("Finish producing due to reaching target block ID")
+						return
+					}
 					err := ProcessBlockId(ctx, s, id)
 					if err != nil {
 						// Если падаем с ошибкой, то еще раз пытаемся обработать блок
