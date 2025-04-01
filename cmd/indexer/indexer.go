@@ -234,7 +234,7 @@ var Command = &cli.Command{
 		if err != nil {
 			return err
 		}
-		le, err := createLeaderElector(appCtx, nodeID, leaderCallbacks, rdb)
+		le, err := createLeaderElector(nodeID, leaderCallbacks, rdb)
 		if err != nil {
 			return err
 		}
@@ -289,7 +289,6 @@ func createCallbacks(ctx context.Context, seeds []string, s *indexer.Service) ([
 }
 
 func createLeaderElector(
-	ctx context.Context,
 	nodeID string,
 	callbacks []leaderelection.LeaderCallback,
 	rdb *redis.Client,

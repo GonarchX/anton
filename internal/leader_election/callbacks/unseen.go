@@ -77,18 +77,20 @@ func ProduceBlockIdsLoop(ctx context.Context, s *indexer.Service, fromBlock uint
 	// Создаем и запускаем воркеров
 	for range s.Workers {
 		go func() {
-			select {
-			case <-ctx.Done():
-				return
-			case id := <-blockIds:
-				err := ProcessBlockId(ctx, s, id)
-				if err != nil {
-					// Если падаем с ошибкой, то еще раз пытаемся обработать блок
-					blockIds <- id
-				} else {
-					// Иначе переходим к следующему
-					masterSeq.Add(1)
-					blockIds <- masterSeq.Load()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case id := <-blockIds:
+					err := ProcessBlockId(ctx, s, id)
+					if err != nil {
+						// Если падаем с ошибкой, то еще раз пытаемся обработать блок
+						blockIds <- id
+					} else {
+						// Иначе переходим к следующему
+						masterSeq.Add(1)
+						blockIds <- masterSeq.Load()
+					}
 				}
 			}
 		}()
