@@ -9,6 +9,7 @@ import (
 	"github.com/tonindexer/anton/internal/app/indexer"
 	"github.com/tonindexer/anton/internal/core"
 	leaderelection "github.com/tonindexer/anton/internal/leader_election"
+	"github.com/tonindexer/anton/internal/leader_election/benchmark"
 	"sync/atomic"
 	"time"
 )
@@ -58,6 +59,13 @@ func ProduceUnseenBlocks(ctx context.Context, s *indexer.Service) leaderelection
 }
 
 func ProduceBlockIdsLoop(ctx context.Context, s *indexer.Service, fromBlock uint32) {
+	if benchmark.Enabled() {
+		err := benchmark.WaitForStart(ctx)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	masterSeq := atomic.Uint32{}
 	masterSeq.Store(fromBlock)
 
@@ -69,17 +77,18 @@ func ProduceBlockIdsLoop(ctx context.Context, s *indexer.Service, fromBlock uint
 	// Создаем и запускаем воркеров
 	for range s.Workers {
 		go func() {
-			for ctx.Err() == nil {
-				for id := range blockIds {
-					err := ProcessBlockId(ctx, s, id)
-					if err != nil {
-						// Если падаем с ошибкой, то еще раз пытаемся обработать блок
-						blockIds <- id
-					} else {
-						// Иначе переходим к следующему
-						masterSeq.Add(1)
-						blockIds <- masterSeq.Load()
-					}
+			select {
+			case <-ctx.Done():
+				return
+			case id := <-blockIds:
+				err := ProcessBlockId(ctx, s, id)
+				if err != nil {
+					// Если падаем с ошибкой, то еще раз пытаемся обработать блок
+					blockIds <- id
+				} else {
+					// Иначе переходим к следующему
+					masterSeq.Add(1)
+					blockIds <- masterSeq.Load()
 				}
 			}
 		}()

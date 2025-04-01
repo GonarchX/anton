@@ -28,6 +28,7 @@ import (
 	broadcastKafka "github.com/tonindexer/anton/internal/kafka/broadcast"
 	unseenBlocksKafka "github.com/tonindexer/anton/internal/kafka/unseen_block_info"
 	leaderelection "github.com/tonindexer/anton/internal/leader_election"
+	"github.com/tonindexer/anton/internal/leader_election/benchmark"
 	leader_election_callbacks "github.com/tonindexer/anton/internal/leader_election/callbacks"
 	broadcaster "github.com/tonindexer/anton/internal/proto/v1/get_data_stream"
 	redisutils "github.com/tonindexer/anton/redis"
@@ -219,6 +220,13 @@ var Command = &cli.Command{
 			BroadcastMessagesTopicClient: broadcastTopicClient,
 		})
 
+		if benchmark.Enabled() {
+			err := benchmark.PrepareBenchmark(appCtx)
+			if err != nil {
+				return err
+			}
+		}
+
 		leaderCallbacks, err := createCallbacks(appCtx, seeds, i)
 		if err != nil {
 			return err
@@ -270,10 +278,14 @@ func createCallbacks(ctx context.Context, seeds []string, s *indexer.Service) ([
 		return nil, err
 	}
 
-	return []leaderelection.LeaderCallback{
+	callbacks := []leaderelection.LeaderCallback{
 		leader_election_callbacks.RemoveUnusedBroadcastTopics(ctx, client),
 		leader_election_callbacks.ProduceUnseenBlocks(ctx, s),
-	}, nil
+	}
+	if benchmark.Enabled() {
+		callbacks = append(callbacks, leader_election_callbacks.RunWithBenchmark(ctx))
+	}
+	return callbacks, nil
 }
 
 func createLeaderElector(

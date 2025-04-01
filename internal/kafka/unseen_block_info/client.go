@@ -6,6 +6,7 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"github.com/rs/zerolog/log"
 	desc "github.com/tonindexer/anton/internal/generated/proto/anton/api"
+	"github.com/tonindexer/anton/internal/leader_election/benchmark"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/xssnick/tonutils-go/ton"
 	"golang.org/x/sync/errgroup"
@@ -79,16 +80,23 @@ func (c *UnseenBlocksTopicClient) ConsumeLoop(
 	ctx context.Context,
 	processBlock func(ctx context.Context, blockInfo *ton.BlockIDExt, shards []*ton.BlockIDExt) error,
 ) {
+	pollFetches := func() (kgo.Fetches, error) {
+		fetches := c.client.PollFetches(ctx)
+		if errs := fetches.Errors(); len(errs) > 0 {
+			return fetches, fetches.Err()
+		}
+		return fetches, nil
+	}
+
+	if benchmark.Enabled() {
+		err := benchmark.WaitForStart(ctx)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 pollAgain:
 	for ctx.Err() == nil {
-		pollFetches := func() (kgo.Fetches, error) {
-			fetches := c.client.PollFetches(ctx)
-			if errs := fetches.Errors(); len(errs) > 0 {
-				return fetches, fetches.Err()
-			}
-			return fetches, nil
-		}
-
 		// Ретраи нужны, чтобы добавить задержку перед следующим получением записей из Kafka,
 		// если нам не удалось их получить с первого раза.
 		fetches, err := backoff.Retry(ctx, pollFetches, backoff.WithMaxElapsedTime(10))
@@ -119,6 +127,9 @@ pollAgain:
 					shardsPtrs = append(shardsPtrs, shard)
 				}
 
+				if benchmark.Enabled() && blockInfo.Master.SeqNo > benchmark.TargetBlockID() {
+					return benchmark.IncrementFinishedWorkersCount(ctx)
+				}
 				return processBlock(ctx, blockInfo.Master, shardsPtrs)
 			})
 		}
