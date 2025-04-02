@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
-	"github.com/redis/go-redis/v9"
-	"github.com/tonindexer/anton/internal/benchmark"
+	"fmt"
+	"os"
+	"os/exec"
+	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
+	"github.com/tonindexer/anton/internal/benchmark"
 	redisutils "github.com/tonindexer/anton/redis"
 )
 
@@ -16,6 +20,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	//Reset(ctx, rdb)
+	//return
 	benchmark.PrepareBenchmark(rdb)
 
 	// Устанавливаем BENCHMARK_Start = true
@@ -46,4 +53,46 @@ func Reset(ctx context.Context, rdb *redis.Client) {
 	}
 
 	log.Info().Msgf("Benchmark was reset")
+}
+
+func runIndexer() {
+	// Путь к исполняемому файлу другой Go-программы
+	program := "./your_program" // Замените на путь к вашей программе
+
+	// Устанавливаем переменные окружения
+	envVars := []string{
+		"BENCHMARK_ENABLED=true",
+		"BENCHMARK_FINISHED_WORKERS_TARGET=1",
+		"BENCHMARK_TARGET_BLOCKS_NUMBER=1000",
+		"DB_CH_URL=clickhouse://user:pass@localhost:9000/ton?sslmode=disable",
+		"DB_PG_URL=postgres://user:pass@localhost:5432/ton?sslmode=disable",
+		"DEBUG_LOGS=true",
+		"DYLD_LIBRARY_PATH=/usr/local/lib:" + os.Getenv("DYLD_LIBRARY_PATH"),
+		"FROM_BLOCK=25000000",
+		"LITESERVERS=135.181.177.59:53312|aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=",
+		"UNSEEN_BLOCK_WORKERS=2",
+		"WORKERS=2",
+	}
+
+	// Аргументы для запуска
+	args := []string{"indexer", "--contracts-dir", "./abi/known/"}
+
+	// Создаем команду
+	cmd := exec.Command(program, args...)
+	cmd.Env = append(os.Environ(), envVars...)
+	cmd.Stdout = os.Stdout // Перенаправляем вывод в стандартный поток
+	cmd.Stderr = os.Stderr // Перенаправляем ошибки в стандартный поток ошибок
+
+	// Запускаем процесс
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Ошибка при запуске программы: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		fmt.Println("Ошибка при завершении:", err)
+	}
+
+	// Ждем завершения процесса
+	cmd.Wait()
 }

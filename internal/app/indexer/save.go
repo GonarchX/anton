@@ -229,7 +229,9 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 		return s.broadcastNewData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
 	})
 	errGroup.Go(func() error {
-		return s.insertData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
+		time.Sleep(30 * time.Millisecond)
+		return nil
+		//return s.insertData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
 	})
 	if err := errGroup.Wait(); err != nil {
 		return err

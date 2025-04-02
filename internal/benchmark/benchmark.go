@@ -17,7 +17,10 @@ const (
 	// Environment variables.
 	benchmarkEnabledEnv      = "BENCHMARK_ENABLED"
 	finishedWorkersTargetEnv = "BENCHMARK_FINISHED_WORKERS_TARGET"
-	targetBlockIDEnv         = "BENCHMARK_TARGET_BLOCK_ID"
+	// ID блока в блокчейне, до которого мы хотим дойти в рамках бенчмарка.
+	targetBlockIDEnv = "BENCHMARK_TARGET_BLOCK_ID"
+	// Количество блоков, которые мы обрабатываем в рамках бенчмарка.
+	targetBlocksNumberEnv = "BENCHMARK_TARGET_BLOCKS_NUMBER"
 
 	// Redis keys.
 	StartBenchmarkKey  = "BENCHMARK_Start"
@@ -35,6 +38,16 @@ func PrepareBenchmark(client *redis.Client) {
 // TargetBlockID возвращает финальный блок до которого необходимо дойти в рамках бенчмарка.
 func TargetBlockID() uint32 {
 	target := uint32(env.GetInt(targetBlockIDEnv, 0))
+	if target == 0 {
+		// Мы однозначно хотим падать если во время бенчмарка не задан целевой блок.
+		panic("no value for target block ID")
+	}
+	return target
+}
+
+// TargetBlocksNumber возвращает количество блоков, которое необходимо обработать в рамках бенчмарка.
+func TargetBlocksNumber() uint32 {
+	target := uint32(env.GetInt(targetBlocksNumberEnv, 0))
 	if target == 0 {
 		// Мы однозначно хотим падать если во время бенчмарка не задан целевой блок.
 		panic("no value for target block ID")
@@ -82,10 +95,10 @@ func WaitForWorkers(ctx context.Context) error {
 	targetFinishedWorkers := FinishedWorkersTarget()
 
 	b := backoff.NewExponentialBackOff()
-	b.MaxInterval = 5 * time.Second
+	b.MaxInterval = 100 * time.Millisecond
 	_, err := backoff.Retry(ctx, func() (struct{}, error) {
 		val, err := rdb.Get(ctx, FinishedWorkersKey).Int()
-		if err != nil {
+		if err != nil /*&& !errors.Is(err, redis.Nil)*/ {
 			return struct{}{}, fmt.Errorf("failed to get finished workers count from Redis: %w", err)
 		}
 

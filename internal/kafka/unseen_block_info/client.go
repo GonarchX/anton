@@ -11,6 +11,7 @@ import (
 	"github.com/xssnick/tonutils-go/ton"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
+	"sync/atomic"
 )
 
 const (
@@ -95,8 +96,19 @@ func (c *UnseenBlocksTopicClient) ConsumeLoop(
 		}
 	}
 
+	totalProcessedBlocks := atomic.Uint32{}
+
 pollAgain:
 	for ctx.Err() == nil {
+		if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
+			log.Info().Msg("Finish consuming due to reaching target block ID")
+			err := benchmark.IncrementFinishedWorkersCount(ctx)
+			if err != nil {
+				panic(err)
+			}
+			return
+		}
+
 		// Ретраи нужны, чтобы добавить задержку перед следующим получением записей из Kafka,
 		// если нам не удалось их получить с первого раза.
 		fetches, err := backoff.Retry(ctx, pollFetches, backoff.WithMaxElapsedTime(10))
@@ -113,6 +125,14 @@ pollAgain:
 			record := iter.Next()
 			// Логика обработки блоков.
 			group.Go(func() error {
+				if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
+					return nil
+				}
+				defer func() {
+					totalProcessedBlocks.Add(1)
+					//log.Info().Msgf("Total proccessed blocks: %v", totalProcessedBlocks.Load())
+				}()
+
 				blockInfoProto := &desc.UnseenBlockInfo{}
 				err = proto.Unmarshal(record.Value, blockInfoProto)
 				if err != nil {
@@ -127,11 +147,7 @@ pollAgain:
 					shardsPtrs = append(shardsPtrs, shard)
 				}
 
-				if benchmark.Enabled() && blockInfo.Master.SeqNo >= benchmark.TargetBlockID() {
-					log.Info().Msg("Finish consuming due to reaching target block ID")
-					return benchmark.IncrementFinishedWorkersCount(ctx)
-				}
-				return processBlock(ctx, blockInfo.Master, shardsPtrs)
+				return processBlock(fetchesCtx, blockInfo.Master, shardsPtrs)
 			})
 		}
 
