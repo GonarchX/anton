@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"golang.org/x/sync/errgroup"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -196,6 +197,8 @@ func (s *Service) uniqMessages(ctx context.Context, transactions []*core.Transac
 
 var lastLog = time.Now()
 
+var totalTxs = atomic.Int64{}
+
 // saveBlock сохраняет блок и все транзакции из него
 func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 	newBlocks := append([]*core.Block{master}, master.Shards...)
@@ -224,6 +227,8 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 		}
 	}
 
+	totalTxs.Add(int64(len(newTransactions)))
+	log.Info().Msgf("Total txs: %v", totalTxs.Load())
 	errGroup := errgroup.Group{}
 	errGroup.Go(func() error {
 		return s.broadcastNewData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
