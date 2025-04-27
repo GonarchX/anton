@@ -7,6 +7,7 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"github.com/rs/zerolog/log"
 	"github.com/tonindexer/anton/internal/app/indexer"
+	"github.com/tonindexer/anton/internal/benchmark"
 	"github.com/tonindexer/anton/internal/core"
 	leaderelection "github.com/tonindexer/anton/internal/leader_election"
 	"sync/atomic"
@@ -58,6 +59,13 @@ func ProduceUnseenBlocks(ctx context.Context, s *indexer.Service) leaderelection
 }
 
 func ProduceBlockIdsLoop(ctx context.Context, s *indexer.Service, fromBlock uint32) {
+	if benchmark.Enabled() {
+		err := benchmark.WaitForStart(ctx)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	masterSeq := atomic.Uint32{}
 	masterSeq.Store(fromBlock)
 
@@ -69,8 +77,15 @@ func ProduceBlockIdsLoop(ctx context.Context, s *indexer.Service, fromBlock uint
 	// Создаем и запускаем воркеров
 	for range s.Workers {
 		go func() {
-			for ctx.Err() == nil {
-				for id := range blockIds {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case id := <-blockIds:
+					if benchmark.Enabled() && id > benchmark.TargetBlockID() {
+						log.Info().Msg("Finish producing due to reaching target block ID")
+						return
+					}
 					err := ProcessBlockId(ctx, s, id)
 					if err != nil {
 						// Если падаем с ошибкой, то еще раз пытаемся обработать блок

@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/rs/zerolog/log"
+	"github.com/tonindexer/anton/internal/benchmark"
 	desc "github.com/tonindexer/anton/internal/generated/proto/anton/api"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/xssnick/tonutils-go/ton"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
+	"sync/atomic"
 )
 
 const (
@@ -79,14 +81,32 @@ func (c *UnseenBlocksTopicClient) ConsumeLoop(
 	ctx context.Context,
 	processBlock func(ctx context.Context, blockInfo *ton.BlockIDExt, shards []*ton.BlockIDExt) error,
 ) {
+	pollFetches := func() (kgo.Fetches, error) {
+		fetches := c.client.PollFetches(ctx)
+		if errs := fetches.Errors(); len(errs) > 0 {
+			return fetches, fetches.Err()
+		}
+		return fetches, nil
+	}
+
+	if benchmark.Enabled() {
+		err := benchmark.WaitForStart(ctx)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	totalProcessedBlocks := atomic.Uint32{}
+
 pollAgain:
 	for ctx.Err() == nil {
-		pollFetches := func() (kgo.Fetches, error) {
-			fetches := c.client.PollFetches(ctx)
-			if errs := fetches.Errors(); len(errs) > 0 {
-				return fetches, fetches.Err()
+		if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
+			log.Info().Msg("Finish consuming due to reaching target block ID")
+			err := benchmark.IncrementFinishedWorkersCount(ctx)
+			if err != nil {
+				panic(err)
 			}
-			return fetches, nil
+			return
 		}
 
 		// Ретраи нужны, чтобы добавить задержку перед следующим получением записей из Kafka,
@@ -105,6 +125,14 @@ pollAgain:
 			record := iter.Next()
 			// Логика обработки блоков.
 			group.Go(func() error {
+				if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
+					return nil
+				}
+				defer func() {
+					totalProcessedBlocks.Add(1)
+					//log.Info().Msgf("Total proccessed blocks: %v", totalProcessedBlocks.Load())
+				}()
+
 				blockInfoProto := &desc.UnseenBlockInfo{}
 				err = proto.Unmarshal(record.Value, blockInfoProto)
 				if err != nil {
@@ -119,7 +147,7 @@ pollAgain:
 					shardsPtrs = append(shardsPtrs, shard)
 				}
 
-				return processBlock(ctx, blockInfo.Master, shardsPtrs)
+				return processBlock(fetchesCtx, blockInfo.Master, shardsPtrs)
 			})
 		}
 
@@ -129,10 +157,13 @@ pollAgain:
 			goto pollAgain
 		}
 
-		err = c.client.CommitRecords(ctx, fetches.Records()...)
-		if err != nil {
-			log.Error().Msgf("failed to commit records: %v\n", err)
-			goto pollAgain
+		if !benchmark.Enabled() {
+			// Во время бенчмарка ничего не комитим, чтобы можно было перезапустить бенчмарк и начать обработку заново.
+			err = c.client.CommitRecords(ctx, fetches.Records()...)
+			if err != nil {
+				log.Error().Msgf("failed to commit records: %v\n", err)
+				goto pollAgain
+			}
 		}
 	}
 }

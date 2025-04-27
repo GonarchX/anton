@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/redis/go-redis/v9"
+	"github.com/tonindexer/anton/internal/benchmark"
 	"net"
 	"os"
 	"os/signal"
@@ -219,11 +221,20 @@ var Command = &cli.Command{
 			BroadcastMessagesTopicClient: broadcastTopicClient,
 		})
 
+		rdb, err := redisutils.New(appCtx)
+		if err != nil {
+			return err
+		}
+
+		if benchmark.Enabled() {
+			benchmark.PrepareBenchmark(rdb)
+		}
+
 		leaderCallbacks, err := createCallbacks(appCtx, seeds, i)
 		if err != nil {
 			return err
 		}
-		le, err := createLeaderElector(appCtx, nodeID, leaderCallbacks)
+		le, err := createLeaderElector(nodeID, leaderCallbacks, rdb)
 		if err != nil {
 			return err
 		}
@@ -270,22 +281,18 @@ func createCallbacks(ctx context.Context, seeds []string, s *indexer.Service) ([
 		return nil, err
 	}
 
-	return []leaderelection.LeaderCallback{
+	callbacks := []leaderelection.LeaderCallback{
 		leader_election_callbacks.RemoveUnusedBroadcastTopics(ctx, client),
 		leader_election_callbacks.ProduceUnseenBlocks(ctx, s),
-	}, nil
+	}
+	return callbacks, nil
 }
 
 func createLeaderElector(
-	ctx context.Context,
 	nodeID string,
 	callbacks []leaderelection.LeaderCallback,
+	rdb *redis.Client,
 ) (*leaderelection.LeaderElector, error) {
-	rdb, err := redisutils.New(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	config := &leaderelection.Config{
 		LockKey:         leaderelection.DefaultLeaderKey,
 		NodeID:          nodeID,

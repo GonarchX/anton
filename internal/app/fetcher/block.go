@@ -48,14 +48,14 @@ func getShardID(shard *ton.BlockIDExt) string {
 	return fmt.Sprintf("%d|%d", shard.Workchain, shard.Shard)
 }
 
-func (s *Service) getNotSeenShards(ctx context.Context, shard *ton.BlockIDExt, shardLastSeqNo map[string]uint32) (ret []*ton.BlockIDExt, err error) {
+func (s *Service) getNotSeenBlocks(ctx context.Context, block *ton.BlockIDExt, shardLastSeqNo map[string]uint32) (ret []*ton.BlockIDExt, err error) {
 	// Если текущий шард есть в предыдущем стейте и SeqNo (номер последнего блока???) совпадают,
 	// то скипаем проверку, т.к. шарды идентичны
-	if no, ok := shardLastSeqNo[getShardID(shard)]; ok && no == shard.SeqNo {
+	if no, ok := shardLastSeqNo[getShardID(block)]; ok && no == block.SeqNo {
 		return nil, nil
 	}
 
-	b, err := s.API.GetBlockData(ctx, shard)
+	b, err := s.API.GetBlockData(ctx, block)
 	if err != nil {
 		return nil, fmt.Errorf("get block data: %w", err)
 	}
@@ -65,19 +65,19 @@ func (s *Service) getNotSeenShards(ctx context.Context, shard *ton.BlockIDExt, s
 	// 2 Родителя - текущий блок является результатом мержа предыдущих двух блоков
 	parents, err := b.BlockInfo.GetParentBlocks()
 	if err != nil {
-		return nil, fmt.Errorf("get parent blocks (%d:%x:%d): %w", shard.Workchain, uint64(shard.Shard), shard.Shard, err)
+		return nil, fmt.Errorf("get parent blocks (%d:%x:%d): %w", block.Workchain, uint64(block.Shard), block.Shard, err)
 	}
 
 	// Рекурсивно проходимся по родительским блокам, собирая все блоки, которыми отличаются шарды из разных стейтов
 	for _, parent := range parents {
-		ext, err := s.getNotSeenShards(ctx, parent, shardLastSeqNo)
+		ext, err := s.getNotSeenBlocks(ctx, parent, shardLastSeqNo)
 		if err != nil {
 			return nil, err
 		}
 		ret = append(ret, ext...)
 	}
 
-	ret = append(ret, shard)
+	ret = append(ret, block)
 	return ret, nil
 }
 
@@ -120,7 +120,7 @@ func (s *Service) UnseenShards(ctx context.Context, master *ton.BlockIDExt) (sha
 	defer cancel()
 
 	for _, shard := range curShards {
-		notSeen, err := s.getNotSeenShards(ctxNotSeen, shard, shardLastSeqNo)
+		notSeen, err := s.getNotSeenBlocks(ctxNotSeen, shard, shardLastSeqNo)
 		if err != nil {
 			return nil, errors.Wrap(err, "get not seen shards")
 		}
