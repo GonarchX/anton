@@ -97,7 +97,7 @@ func (s *Service) running() bool {
 // Start начинает индексацию блоков с учетом лидерства.
 func (s *Service) Start(ctx context.Context) error {
 	// Логика обработки блока после получения из Kafka.
-	processBlock := func(ctx context.Context, blockInfo *ton.BlockIDExt, shards []*ton.BlockIDExt) error {
+	processBlockFunc := func(ctx context.Context, blockInfo *ton.BlockIDExt, shards []*ton.BlockIDExt) error {
 		txs, err := s.getBlockTxs(ctx, blockInfo, shards)
 		if err != nil {
 			log.Error().Err(err).Msgf("failed to get block transactions")
@@ -111,7 +111,7 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 		return err
 	}
-	go s.UnseenBlocksTopicClient.ConsumeLoop(ctx, processBlock)
+	go s.UnseenBlocksTopicClient.ConsumeLoop(ctx, processBlockFunc)
 
 	s.mx.Lock()
 	s.run = true
