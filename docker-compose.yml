@@ -110,19 +110,11 @@ services:
       POSTGRES_USER: "${DB_USERNAME}"
       POSTGRES_PASSWORD: "${DB_PASSWORD}"
 
-  kafka-ui:
-    container_name: anton-kafka-ui
-    image: provectuslabs/kafka-ui:latest
-    ports:
-      - 9091:8080
-    environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      DYNAMIC_CONFIG_ENABLED: "true"
-
   kafka:
     container_name: anton-kafka
     image: confluentinc/cp-kafka:7.5.4.arm64
+    volumes:
+      - kafka_data:/var/lib/kafka/data
     ports:
       - "9092:9092"
     environment:
@@ -138,6 +130,16 @@ services:
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+
+  kafka-ui:
+    container_name: anton-kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 9091:8080
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: "true"
 
   kafka-init-topics:
     container_name: anton-init-topics
@@ -168,3 +170,4 @@ volumes:
   idx_ch_data:
   idx_pg_data:
   redis_data:
+  kafka_data:

@@ -75,7 +75,7 @@ func (c *UnseenBlocksTopicClient) ProduceSync(
 	return nil
 }
 
-// ConsumeLoop получает блоки от лидера и сохраняет их в базу данных.
+// ConsumeLoop получает блоки от лидера, обрабатывает и сохраняет их в базу данных.
 // Note: при попытке сохранить уже обработанные блоки мы просто выполним Upsert, перезаписав существующие данные.
 func (c *UnseenBlocksTopicClient) ConsumeLoop(
 	ctx context.Context,
@@ -117,11 +117,11 @@ pollAgain:
 			goto pollAgain
 		}
 
-		group, fetchesCtx := errgroup.WithContext(context.Background())
+		group := errgroup.Group{}
 		group.SetLimit(c.WorkersNumber)
 
 		iter := fetches.RecordIter()
-		for !iter.Done() && fetchesCtx.Err() == nil {
+		for !iter.Done() {
 			record := iter.Next()
 			// Логика обработки блоков.
 			group.Go(func() error {
@@ -130,7 +130,7 @@ pollAgain:
 				}
 				defer func() {
 					totalProcessedBlocks.Add(1)
-					//log.Info().Msgf("Total proccessed blocks: %v", totalProcessedBlocks.Load())
+					log.Info().Msgf("Total proccessed blocks: %v", totalProcessedBlocks.Load())
 				}()
 
 				blockInfoProto := &desc.UnseenBlockInfo{}
@@ -147,7 +147,7 @@ pollAgain:
 					shardsPtrs = append(shardsPtrs, shard)
 				}
 
-				return processBlock(fetchesCtx, blockInfo.Master, shardsPtrs)
+				return processBlock(ctx, blockInfo.Master, shardsPtrs)
 			})
 		}
 

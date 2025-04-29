@@ -170,7 +170,7 @@ CHECK (
 	return nil
 }
 
-func (r *Repository) AddMessages(ctx context.Context, tx bun.Tx, messages []*core.Message) error {
+func (r *Repository) AddMessages(ctx context.Context, messages []*core.Message) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -180,7 +180,7 @@ func (r *Repository) AddMessages(ctx context.Context, tx bun.Tx, messages []*cor
 		// if some message has been already inserted,
 		// we update destination transaction and parsed data
 
-		_, err := tx.NewInsert().Model(msg).
+		_, err := r.pg.NewInsert().Model(msg).
 			On("CONFLICT (hash) DO UPDATE").
 			Set("dst_tx_lt = ?dst_tx_lt").
 			Set("dst_workchain = ?dst_workchain").

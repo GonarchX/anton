@@ -23,15 +23,7 @@ func (s *Service) insertData(
 	tx []*core.Transaction,
 	b []*core.Block,
 ) error {
-	dbTx, err := s.DB.PG.Begin()
-	if err != nil {
-		return errors.Wrap(err, "cannot begin db tx")
-	}
-	defer func() {
-		_ = dbTx.Rollback()
-	}()
-
-	/*for _, message := range msg {
+	for _, message := range msg {
 		err := s.Parser.ParseMessagePayload(ctx, message)
 		if errors.Is(err, app.ErrImpossibleParsing) {
 			continue
@@ -47,10 +39,10 @@ func (s *Service) insertData(
 				Msg("parse message payload")
 		}
 	}
-	*/
+
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddAccountStates(%d)", len(acc))
-		return s.accountRepo.AddAccountStates(ctx, dbTx, acc)
+		return s.accountRepo.AddAccountStates(ctx, acc)
 	}(); err != nil {
 		return errors.Wrap(err, "add account states")
 	}
@@ -58,27 +50,23 @@ func (s *Service) insertData(
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddMessages(%d)", len(msg))
 		sort.Slice(msg, func(i, j int) bool { return msg[i].CreatedLT < msg[j].CreatedLT })
-		return s.msgRepo.AddMessages(ctx, dbTx, msg)
+		return s.msgRepo.AddMessages(ctx, msg)
 	}(); err != nil {
 		return errors.Wrap(err, "add messages")
 	}
 
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddTransactions(%d)", len(tx))
-		return s.txRepo.AddTransactions(ctx, dbTx, tx)
+		return s.txRepo.AddTransactions(ctx, tx)
 	}(); err != nil {
 		return errors.Wrap(err, "add transactions")
 	}
 
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddBlocks(%d)", len(b))
-		return s.BlockRepo.AddBlocks(ctx, dbTx, b)
+		return s.BlockRepo.AddBlocks(ctx, b)
 	}(); err != nil {
 		return errors.Wrap(err, "add blocks")
-	}
-
-	if err := dbTx.Commit(); err != nil {
-		return errors.Wrap(err, "cannot commit db tx")
 	}
 
 	return nil

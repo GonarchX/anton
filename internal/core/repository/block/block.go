@@ -66,12 +66,12 @@ func CreateTables(ctx context.Context, chDB *ch.DB, pgDB *bun.DB) error {
 	return createIndexes(ctx, pgDB)
 }
 
-func (r *Repository) AddBlocks(ctx context.Context, tx bun.Tx, info []*core.Block) error {
+func (r *Repository) AddBlocks(ctx context.Context, info []*core.Block) error {
 	if len(info) == 0 {
 		return nil
 	}
 	for _, b := range info {
-		_, err := tx.NewInsert().
+		_, err := r.pg.NewInsert().
 			On("CONFLICT (file_hash) DO UPDATE").
 			On("CONFLICT (workchain,shard,seq_no) DO UPDATE").
 			On("CONFLICT (root_hash) DO UPDATE").

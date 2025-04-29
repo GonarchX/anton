@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 
+	"github.com/allisson/go-env"
+	"github.com/cenkalti/backoff/v5"
 	"github.com/rs/zerolog/log"
 	"github.com/tonindexer/anton/internal/app"
 	"github.com/tonindexer/anton/internal/core"
@@ -104,11 +106,18 @@ func (s *Service) Start(ctx context.Context) error {
 			return err
 		}
 
-		// Сохраняем в бд.
-		err = s.saveBlock(ctx, txs)
-		if err != nil {
-			log.Error().Err(err).Msgf("failed to save block transactions")
+		// Из-за того, что несколько горутин пытаются сохранить данные в БД, иногда возникают конфликты при записи,
+		// которые можно решить перезапустив транзакцию.
+		retriableSaveBlock := func() (struct{}, error) {
+			// Сохраняем в бд.
+			err = s.saveBlock(ctx, txs)
+			if err != nil {
+				log.Error().Err(err).Msgf("failed to save block transactions")
+			}
+
+			return struct{}{}, err
 		}
+		_, err = backoff.Retry(ctx, retriableSaveBlock, backoff.WithMaxTries(uint(env.GetInt("MAX_BLOCK_PROCESSING_RETRIES", 10))))
 		return err
 	}
 	go s.UnseenBlocksTopicClient.ConsumeLoop(ctx, processBlockFunc)

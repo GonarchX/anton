@@ -15,9 +15,7 @@ CREATE TABLE block_info (
     master_shard bigint,
     master_seq_no integer,
     scanned_at timestamp without time zone NOT NULL,
-    CONSTRAINT block_info_pkey PRIMARY KEY (workchain, shard, seq_no),
-    CONSTRAINT block_info_file_hash_key UNIQUE (file_hash),
-    CONSTRAINT block_info_root_hash_key UNIQUE (root_hash)
+    CONSTRAINT block_info_pkey PRIMARY KEY (workchain, shard, seq_no)
 );
 
 
@@ -72,16 +70,14 @@ CREATE TABLE account_states (
     content_image_data bytea,
     jetton_balance numeric,
     updated_at timestamp without time zone NOT NULL,
-    CONSTRAINT account_states_pkey PRIMARY KEY (address, last_tx_lt),
-    CONSTRAINT account_states_last_tx_hash_key UNIQUE (last_tx_hash)
+    CONSTRAINT account_states_pkey PRIMARY KEY (address, last_tx_lt)
 );
 
 --bun:split
 CREATE TABLE latest_account_states (
     address bytea NOT NULL,
     last_tx_lt bigint NOT NULL,
-    CONSTRAINT latest_account_states_pkey PRIMARY KEY (address),
-    CONSTRAINT latest_account_states_address_last_tx_lt_fkey FOREIGN KEY (address, last_tx_lt) REFERENCES account_states(address, last_tx_lt)
+    CONSTRAINT latest_account_states_pkey PRIMARY KEY (address)
 );
 
 
@@ -176,9 +172,7 @@ CREATE TABLE contract_interfaces (
     code bytea,
     get_methods_desc text,
     get_method_hashes integer[],
-    CONSTRAINT contract_interfaces_pkey PRIMARY KEY (name),
-    CONSTRAINT contract_interfaces_addresses_key UNIQUE (addresses),
-    CONSTRAINT contract_interfaces_code_key UNIQUE (code)
+    CONSTRAINT contract_interfaces_pkey PRIMARY KEY (name)
 );
 
 --bun:split
@@ -189,9 +183,7 @@ CREATE TABLE contract_operations (
     outgoing boolean NOT NULL,
     operation_id integer NOT NULL,
     schema jsonb,
-    CONSTRAINT contract_operations_pkey PRIMARY KEY (contract_name, outgoing, operation_id),
-    CONSTRAINT contract_interfaces_uniq_name UNIQUE (operation_name, contract_name),
-    CONSTRAINT contract_operations_contract_name_fkey FOREIGN KEY (contract_name) REFERENCES contract_interfaces(name)
+    CONSTRAINT contract_operations_pkey PRIMARY KEY (contract_name, outgoing, operation_id)
 );
 
 

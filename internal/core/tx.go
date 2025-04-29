@@ -69,5 +69,5 @@ func (tx *Transaction) LoadDescription() error { // TODO: optionally load descri
 }
 
 type TransactionRepository interface {
-	AddTransactions(ctx context.Context, tx bun.Tx, transactions []*Transaction) error
+	AddTransactions(ctx context.Context, transactions []*Transaction) error
 }

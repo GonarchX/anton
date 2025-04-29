@@ -4,11 +4,10 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/go-clickhouse/ch"
-
 	"github.com/tonindexer/anton/internal/core"
 	"github.com/tonindexer/anton/internal/core/repository"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/go-clickhouse/ch"
 )
 
 var _ repository.Transaction = (*Repository)(nil)
@@ -100,18 +99,33 @@ func CreateTables(ctx context.Context, chDB *ch.DB, pgDB *bun.DB) error {
 	return nil
 }
 
-func (r *Repository) AddTransactions(ctx context.Context, tx bun.Tx, transactions []*core.Transaction) error {
+func (r *Repository) AddTransactions(ctx context.Context, transactions []*core.Transaction) error {
 	if len(transactions) == 0 {
 		return nil
 	}
 
-	_, err := tx.NewInsert().
+	_, err := r.pg.NewInsert().
 		On("CONFLICT (address,created_lt) DO UPDATE").
 		On("CONFLICT (hash) DO UPDATE").
 		Model(&transactions).
 		Exec(ctx)
-	if err != nil {
-		return err
+
+	// Есть неприятный баг с тем, что при конфликте мы не можем батчем засунуть наши транзакции, иначе Postgres выдаст ошибку,
+	// описанную в переменной txAlreadyExistsErr. Поэтому приходится добавлять каждую транзакцию отдельно.
+	// Это не так уж и страшно, т.к. если транзакция уже существует, то, скорее всего, мы проводим реиндексацию, поэтому перфомансом можно немного пренебречь.
+	txAlreadyExistsErr := err != nil && err.Error() == "ERROR: ON CONFLICT DO UPDATE command cannot affect row a second time (SQLSTATE=21000)"
+	if txAlreadyExistsErr {
+		// Нужно вставлять транзакции блокчейна в отдельной транзакции БД, т.к. предыдущая транзакция БД прошла неуспешно.
+		for _, tx := range transactions {
+			_, err = r.pg.NewInsert().
+				On("CONFLICT (address,created_lt) DO UPDATE").
+				On("CONFLICT (hash) DO UPDATE").
+				Model(tx).
+				Exec(ctx)
+		}
+		if err != nil {
+			return err
+		}
 	}
 
 	_, err = r.ch.NewInsert().Model(&transactions).Exec(ctx)

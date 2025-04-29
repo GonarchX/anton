@@ -17,7 +17,7 @@ const (
 	// Environment variables.
 	benchmarkEnabledEnv      = "BENCHMARK_ENABLED"
 	finishedWorkersTargetEnv = "BENCHMARK_FINISHED_WORKERS_TARGET"
-	// ID блока в блокчейне, до которого мы хотим дойти в рамках бенчмарка.
+	// ID блока в блокчейне, до которого мы пишем в рамках бенчмарка.
 	targetBlockIDEnv = "BENCHMARK_TARGET_BLOCK_ID"
 	// Количество блоков, которые мы обрабатываем в рамках бенчмарка.
 	targetBlocksNumberEnv = "BENCHMARK_TARGET_BLOCKS_NUMBER"
