@@ -2,9 +2,7 @@ package fetcher
 
 import (
 	"context"
-	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -138,16 +136,12 @@ func (s *Service) fetchTxIDs(ctx context.Context, b *ton.BlockIDExt, after *ton.
 }
 
 var cachedTxs []*core.Transaction
-var MinTxs atomic.Int64
-var MaxTxs atomic.Int64
-var TotalTxs atomic.Int64
-var txsCount atomic.Int64
 
 // BlockTransactions возвращает транзакции указанного блока
 func (s *Service) BlockTransactions(ctx context.Context, master, b *ton.BlockIDExt) ([]*core.Transaction, error) {
-	if cachedTxs != nil {
-		return cachedTxs, nil
-	}
+	//if cachedTxs != nil {
+	//	return cachedTxs, nil
+	//}
 
 	var (
 		after        *ton.TransactionID3
@@ -180,16 +174,6 @@ func (s *Service) BlockTransactions(ctx context.Context, master, b *ton.BlockIDE
 		transactions = append(transactions, rawTx...)
 	}
 
-	cur := len(transactions)
-	if int64(cur) < MinTxs.Load() {
-		MinTxs.Store(int64(cur))
-	}
-	if int64(cur) > MaxTxs.Load() {
-		MaxTxs.Store(int64(cur))
-	}
-	TotalTxs.Add(int64(cur))
-	txsCount.Add(1)
-	fmt.Printf("Min: %d, Max: %d, Count: %d, Total: %d Current: %d\n", MinTxs.Load(), MaxTxs.Load(), TotalTxs.Load(), txsCount.Load(), cur)
-	cachedTxs = transactions
+	//cachedTxs = transactions
 	return transactions, nil
 }

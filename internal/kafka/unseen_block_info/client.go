@@ -101,14 +101,8 @@ func (c *UnseenBlocksTopicClient) ConsumeLoop(
 pollAgain:
 	for ctx.Err() == nil {
 		if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
-			log.Info().Msg("Finish consuming due to reaching target block ID")
-			err := benchmark.IncrementFinishedWorkersCount(ctx)
-			if err != nil {
-				panic(err)
-			}
 			return
 		}
-
 		// Ретраи нужны, чтобы добавить задержку перед следующим получением записей из Kafka,
 		// если нам не удалось их получить с первого раза.
 		fetches, err := backoff.Retry(ctx, pollFetches, backoff.WithMaxElapsedTime(10))
@@ -125,9 +119,19 @@ pollAgain:
 			record := iter.Next()
 			// Логика обработки блоков.
 			group.Go(func() error {
-				if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
-					return nil
+				if benchmark.Enabled() {
+					defer func() {
+						if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
+							log.Info().Msg("Finish consuming due to reaching target block ID")
+							err := benchmark.IncrementFinishedWorkersCount(ctx)
+							if err != nil {
+								panic(err)
+							}
+							return
+						}
+					}()
 				}
+
 				defer func() {
 					totalProcessedBlocks.Add(1)
 					log.Info().Msgf("Total proccessed blocks: %v", totalProcessedBlocks.Load())
@@ -149,6 +153,9 @@ pollAgain:
 
 				return processBlock(ctx, blockInfo.Master, shardsPtrs)
 			})
+			if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
+				return
+			}
 		}
 
 		err = group.Wait()

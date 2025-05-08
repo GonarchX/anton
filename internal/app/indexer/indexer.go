@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/allisson/go-env"
 	"github.com/cenkalti/backoff/v5"
@@ -117,7 +118,12 @@ func (s *Service) Start(ctx context.Context) error {
 
 			return struct{}{}, err
 		}
-		_, err = backoff.Retry(ctx, retriableSaveBlock, backoff.WithMaxTries(uint(env.GetInt("MAX_BLOCK_PROCESSING_RETRIES", 10))))
+
+		off := backoff.NewExponentialBackOff()
+		off.MaxInterval = 3 * time.Second
+		_, err = backoff.Retry(ctx, retriableSaveBlock,
+			backoff.WithBackOff(off),
+			backoff.WithMaxTries(uint(env.GetInt("MAX_BLOCK_PROCESSING_RETRIES", 10))))
 		return err
 	}
 	go s.UnseenBlocksTopicClient.ConsumeLoop(ctx, processBlockFunc)

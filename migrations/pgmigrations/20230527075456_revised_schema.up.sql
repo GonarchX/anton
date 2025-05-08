@@ -15,7 +15,9 @@ CREATE TABLE block_info (
     master_shard bigint,
     master_seq_no integer,
     scanned_at timestamp without time zone NOT NULL,
-    CONSTRAINT block_info_pkey PRIMARY KEY (workchain, shard, seq_no)
+    CONSTRAINT block_info_pkey PRIMARY KEY (workchain, shard, seq_no),
+    CONSTRAINT block_info_file_hash_key UNIQUE (file_hash),
+    CONSTRAINT block_info_root_hash_key UNIQUE (root_hash)
 );
 
 
@@ -121,23 +123,7 @@ CREATE TABLE messages (
     error character varying,
     created_at timestamp without time zone NOT NULL,
     created_lt bigint NOT NULL,
-    CONSTRAINT messages_pkey PRIMARY KEY (hash),
-    CONSTRAINT messages_tx_lt_notnull CHECK ((
-        (
-            (type = 'EXTERNAL_OUT') AND (src_address IS NOT NULL) AND (src_tx_lt IS NOT NULL) AND (dst_address IS NULL) AND (dst_tx_lt IS NULL)
-        ) OR (
-            (type = 'EXTERNAL_IN') AND (src_address IS NULL) AND (src_tx_lt IS NULL) AND (dst_address IS NOT NULL) AND (dst_tx_lt IS NOT NULL)
-        ) OR (
-            (type = 'INTERNAL') AND
-            (src_workchain != -1 OR dst_workchain != -1) AND
-            -- (src_address IS NOT NULL) AND -- counterexample in testnet: cf86b1d575e0a34720abc911edc6ce303b2f8cf842117bafb0e18af709ca3b17
-            (src_tx_lt IS NOT NULL) AND
-            -- (dst_address IS NOT NULL) AND -- destination can be null (burn address)
-            (dst_tx_lt IS NOT NULL)
-        ) OR (
-            (type = 'INTERNAL') AND src_workchain = -1 AND dst_workchain = -1
-        )
-    ))
+    CONSTRAINT messages_pkey PRIMARY KEY (hash)
 );
 
 --bun:split

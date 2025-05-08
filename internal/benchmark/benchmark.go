@@ -127,5 +127,6 @@ func IncrementFinishedWorkersCount(ctx context.Context) error {
 	}
 
 	log.Info().Int64("finished_workers", finished).Msgf("Count of finished worker successfully incremented")
+	println(GetStats().String())
 	return nil
 }

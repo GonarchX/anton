@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"github.com/tonindexer/anton/internal/benchmark"
 	"strings"
 	"sync"
 	"time"
@@ -255,6 +256,9 @@ func (s *Service) getBlockTxs(ctx context.Context, master *ton.BlockIDExt, shard
 		return nil, errBlock.err
 	} else {
 		gotMaster.Shards = gotShards
+		if benchmark.Enabled() {
+			benchmark.GetStats().ProcessMasterBlock(gotMaster)
+		}
 		return gotMaster, nil
 	}
 }

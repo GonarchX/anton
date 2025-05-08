@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"golang.org/x/sync/errgroup"
 	"sort"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
-
 	"github.com/tonindexer/anton/addr"
 	"github.com/tonindexer/anton/internal/app"
 	"github.com/tonindexer/anton/internal/core"
@@ -23,7 +21,7 @@ func (s *Service) insertData(
 	tx []*core.Transaction,
 	b []*core.Block,
 ) error {
-	for _, message := range msg {
+	/*for _, message := range msg {
 		err := s.Parser.ParseMessagePayload(ctx, message)
 		if errors.Is(err, app.ErrImpossibleParsing) {
 			continue
@@ -38,7 +36,7 @@ func (s *Service) insertData(
 				Uint32("op_id", message.OperationID).
 				Msg("parse message payload")
 		}
-	}
+	}*/
 
 	if err := func() error {
 		defer app.TimeTrack(time.Now(), "AddAccountStates(%d)", len(acc))
@@ -185,8 +183,6 @@ func (s *Service) uniqMessages(ctx context.Context, transactions []*core.Transac
 
 var lastLog = time.Now()
 
-var totalTxs = atomic.Int64{}
-
 // saveBlock сохраняет блок и все транзакции из него
 func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 	newBlocks := append([]*core.Block{master}, master.Shards...)
@@ -198,7 +194,7 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 
 	// Добавляем дополнительную информацию в сообщения путем парсинга их содержимого.
 	uniqMsgs := s.uniqMessages(ctx, newTransactions)
-	for _, message := range uniqMsgs {
+	/*for _, message := range uniqMsgs {
 		err := s.Parser.ParseMessagePayload(ctx, message)
 		if errors.Is(err, app.ErrImpossibleParsing) {
 			continue
@@ -213,10 +209,8 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 				Uint32("op_id", message.OperationID).
 				Msg("parse message payload")
 		}
-	}
+	}*/
 
-	totalTxs.Add(int64(len(newTransactions)))
-	log.Info().Msgf("Total txs: %v", totalTxs.Load())
 	errGroup := errgroup.Group{}
 	errGroup.Go(func() error {
 		return s.broadcastNewData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
