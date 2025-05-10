@@ -117,12 +117,12 @@ func (s *Service) getAccount(ctx context.Context, master, b *ton.BlockIDExt, a a
 
 	// sometimes, to parse the full account data we need to get other contracts states
 	// for example, to get nft item data
-	getOtherAccount := s.makeGetOtherAccountFunc(master, b, acc.LastTxLT)
+	//getOtherAccount := s.makeGetOtherAccountFunc(master, b, acc.LastTxLT)
 
-	err = s.Parser.ParseAccountData(ctx, acc, getOtherAccount)
-	if err != nil && !errors.Is(err, app.ErrImpossibleParsing) {
-		return nil, errors.Wrapf(err, "parse account data (%s)", acc.Address.String())
-	}
+	//err = s.Parser.ParseAccountData(ctx, acc, getOtherAccount)
+	//if err != nil && !errors.Is(err, app.ErrImpossibleParsing) {
+	//	return nil, errors.Wrapf(err, "parse account data (%s)", acc.Address.String())
+	//}
 
 	s.accounts.set(b, acc)
 	return acc, nil

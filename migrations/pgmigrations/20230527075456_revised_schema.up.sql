@@ -72,16 +72,14 @@ CREATE TABLE account_states (
     content_image_data bytea,
     jetton_balance numeric,
     updated_at timestamp without time zone NOT NULL,
-    CONSTRAINT account_states_pkey PRIMARY KEY (address, last_tx_lt),
-    CONSTRAINT account_states_last_tx_hash_key UNIQUE (last_tx_hash)
+    CONSTRAINT account_states_pkey PRIMARY KEY (address, last_tx_lt)
 );
 
 --bun:split
 CREATE TABLE latest_account_states (
     address bytea NOT NULL,
     last_tx_lt bigint NOT NULL,
-    CONSTRAINT latest_account_states_pkey PRIMARY KEY (address),
-    CONSTRAINT latest_account_states_address_last_tx_lt_fkey FOREIGN KEY (address, last_tx_lt) REFERENCES account_states(address, last_tx_lt)
+    CONSTRAINT latest_account_states_pkey PRIMARY KEY (address)
 );
 
 
@@ -125,23 +123,7 @@ CREATE TABLE messages (
     error character varying,
     created_at timestamp without time zone NOT NULL,
     created_lt bigint NOT NULL,
-    CONSTRAINT messages_pkey PRIMARY KEY (hash),
-    CONSTRAINT messages_tx_lt_notnull CHECK ((
-        (
-            (type = 'EXTERNAL_OUT') AND (src_address IS NOT NULL) AND (src_tx_lt IS NOT NULL) AND (dst_address IS NULL) AND (dst_tx_lt IS NULL)
-        ) OR (
-            (type = 'EXTERNAL_IN') AND (src_address IS NULL) AND (src_tx_lt IS NULL) AND (dst_address IS NOT NULL) AND (dst_tx_lt IS NOT NULL)
-        ) OR (
-            (type = 'INTERNAL') AND
-            (src_workchain != -1 OR dst_workchain != -1) AND
-            -- (src_address IS NOT NULL) AND -- counterexample in testnet: cf86b1d575e0a34720abc911edc6ce303b2f8cf842117bafb0e18af709ca3b17
-            (src_tx_lt IS NOT NULL) AND
-            -- (dst_address IS NOT NULL) AND -- destination can be null (burn address)
-            (dst_tx_lt IS NOT NULL)
-        ) OR (
-            (type = 'INTERNAL') AND src_workchain = -1 AND dst_workchain = -1
-        )
-    ))
+    CONSTRAINT messages_pkey PRIMARY KEY (hash)
 );
 
 --bun:split
@@ -176,9 +158,7 @@ CREATE TABLE contract_interfaces (
     code bytea,
     get_methods_desc text,
     get_method_hashes integer[],
-    CONSTRAINT contract_interfaces_pkey PRIMARY KEY (name),
-    CONSTRAINT contract_interfaces_addresses_key UNIQUE (addresses),
-    CONSTRAINT contract_interfaces_code_key UNIQUE (code)
+    CONSTRAINT contract_interfaces_pkey PRIMARY KEY (name)
 );
 
 --bun:split
@@ -189,9 +169,7 @@ CREATE TABLE contract_operations (
     outgoing boolean NOT NULL,
     operation_id integer NOT NULL,
     schema jsonb,
-    CONSTRAINT contract_operations_pkey PRIMARY KEY (contract_name, outgoing, operation_id),
-    CONSTRAINT contract_interfaces_uniq_name UNIQUE (operation_name, contract_name),
-    CONSTRAINT contract_operations_contract_name_fkey FOREIGN KEY (contract_name) REFERENCES contract_interfaces(name)
+    CONSTRAINT contract_operations_pkey PRIMARY KEY (contract_name, outgoing, operation_id)
 );
 
 

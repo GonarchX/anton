@@ -163,7 +163,7 @@ type AccountRepository interface {
 	AddAddressLabel(context.Context, *AddressLabel) error
 	GetAddressLabel(context.Context, addr.Address) (*AddressLabel, error)
 
-	AddAccountStates(ctx context.Context, tx bun.Tx, states []*AccountState) error
+	AddAccountStates(ctx context.Context, states []*AccountState) error
 	UpdateAccountStates(ctx context.Context, states []*AccountState) error
 
 	// MatchStatesByInterfaceDesc returns (address, last_tx_lt) pairs for suitable account states.

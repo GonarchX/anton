@@ -33,6 +33,7 @@ func (s *Service) getTransaction(ctx context.Context, master, b *ton.BlockIDExt,
 
 	txCh := make(chan ret)
 	go func() {
+		defer wg.Done()
 		rawTx, err := s.API.GetTransaction(ctx, b, a, id.LT)
 		if err == nil {
 			tx, err := mapTransaction(b, rawTx)
@@ -47,6 +48,7 @@ func (s *Service) getTransaction(ctx context.Context, master, b *ton.BlockIDExt,
 
 	accCh := make(chan ret)
 	go func() {
+		defer wg.Done()
 		acc, err := s.getAccount(ctx, master, b, *addr.MustFromTonutils(a))
 		accCh <- ret{res: acc, err: errors.Wrapf(err, "get account (addr = %s)", a)}
 	}()
@@ -133,8 +135,14 @@ func (s *Service) fetchTxIDs(ctx context.Context, b *ton.BlockIDExt, after *ton.
 	return s.API.GetBlockTransactionsV2(ctx, b, 100, after)
 }
 
+var cachedTxs []*core.Transaction
+
 // BlockTransactions возвращает транзакции указанного блока
 func (s *Service) BlockTransactions(ctx context.Context, master, b *ton.BlockIDExt) ([]*core.Transaction, error) {
+	//if cachedTxs != nil {
+	//	return cachedTxs, nil
+	//}
+
 	var (
 		after        *ton.TransactionID3
 		fetchedIDs   []ton.TransactionShortInfo
@@ -157,7 +165,7 @@ func (s *Service) BlockTransactions(ctx context.Context, master, b *ton.BlockIDE
 			after = fetchedIDs[len(fetchedIDs)-1].ID3()
 		}
 
-		// Получаем сами транзакций и сохраняем его
+		// Получаем сами транзакции и сохраняем их
 		rawTx, err := s.getTransactions(ctx, master, b, fetchedIDs)
 		if err != nil {
 			return nil, err
@@ -166,5 +174,6 @@ func (s *Service) BlockTransactions(ctx context.Context, master, b *ton.BlockIDE
 		transactions = append(transactions, rawTx...)
 	}
 
+	//cachedTxs = transactions
 	return transactions, nil
 }

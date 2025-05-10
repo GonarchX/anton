@@ -20,6 +20,8 @@ import (
 	"github.com/tonindexer/anton/internal/core/filter"
 )
 
+// TODO: убрать лишнюю функциональность и упоминание anton
+
 // @title      		Anton
 // @version     	0.1
 // @description 	Project fetches data from TON blockchain.

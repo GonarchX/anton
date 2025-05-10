@@ -4,7 +4,7 @@ package blockinfo;
 
 option go_package = "anton/api";
 
-service ExampleService {
+service BroadcastService {
   rpc V1GetDataStream(V1GetDataStreamRequest) returns (stream V1GetDataStreamResponse);
 }
 

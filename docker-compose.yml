@@ -17,19 +17,19 @@ x-anton-service: &anton-service
     DB_PG_URL: "postgres://${DB_USERNAME}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable"
 
 services:
-  indexer:
-    <<: *anton-service
-    depends_on:
-      <<: *anton-deps
-      migrations:
-        condition: service_completed_successfully
-    command: idx
-    environment:
-      <<: *anton-env
-      FROM_BLOCK: ${FROM_BLOCK}
-      WORKERS: ${WORKERS}
-      LITESERVERS: ${LITESERVERS}
-      DEBUG_LOGS: ${DEBUG_LOGS}
+#  indexer:
+#    <<: *anton-service
+#    depends_on:
+#      <<: *anton-deps
+#      migrations:
+#        condition: service_completed_successfully
+#    command: idx
+#    environment:
+#      <<: *anton-env
+#      FROM_BLOCK: ${FROM_BLOCK}
+#      WORKERS: ${WORKERS}
+#      LITESERVERS: ${LITESERVERS}
+#      DEBUG_LOGS: ${DEBUG_LOGS}
 #  rescan:
 #    <<: *anton-service
 #    depends_on:
@@ -58,9 +58,9 @@ services:
 #      <<: *anton-env
 #      LITESERVERS: ${LITESERVERS}
 #      GIN_MODE: "release"
-  migrations:
-    <<: *anton-service
-    command: ["migrate", "up", "--init"]
+#  migrations:
+#    <<: *anton-service
+#    command: ["migrate", "up", "--init"]
   clickhouse:
     image: "clickhouse/clickhouse-server:22"
     healthcheck:
@@ -110,19 +110,11 @@ services:
       POSTGRES_USER: "${DB_USERNAME}"
       POSTGRES_PASSWORD: "${DB_PASSWORD}"
 
-  kafka-ui:
-    container_name: anton-kafka-ui
-    image: provectuslabs/kafka-ui:latest
-    ports:
-      - 9091:8080
-    environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      DYNAMIC_CONFIG_ENABLED: "true"
-
   kafka:
     container_name: anton-kafka
     image: confluentinc/cp-kafka:7.5.4.arm64
+    volumes:
+      - kafka_data:/var/lib/kafka/data
     ports:
       - "9092:9092"
     environment:
@@ -139,6 +131,16 @@ services:
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
 
+  kafka-ui:
+    container_name: anton-kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 9091:8080
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: "true"
+
   kafka-init-topics:
     container_name: anton-init-topics
     image: confluentinc/cp-kafka:7.5.4.arm64
@@ -146,8 +148,8 @@ services:
       - kafka
     command: "bash -c 'echo Waiting for Kafka to be ready... && \
         cub kafka-ready -b kafka:29092 1 30 && \
-        kafka-topics --create --topic unseen-blocks --partitions 16 --replication-factor 1 --if-not-exists --bootstrap-server kafka:29092' && \
-        kafka-topics --create --topic broadcast-messages --partitions 1 --replication-factor 1 --if-not-exists --bootstrap-server kafka:29092' && \
+        kafka-topics --create --topic unseen-blocks --partitions 16 --replication-factor 1 --if-not-exists --bootstrap-server kafka:29092 && \
+        kafka-topics --create --topic broadcast-messages --partitions 1 --replication-factor 1 --if-not-exists --bootstrap-server kafka:29092  && \
         kafka-configs --alter --entity-type topics --entity-name broadcast-messages --add-config retention.ms=900000 --bootstrap-server kafka:29092'"
 
   redis:
@@ -168,3 +170,4 @@ volumes:
   idx_ch_data:
   idx_pg_data:
   redis_data:
+  kafka_data:

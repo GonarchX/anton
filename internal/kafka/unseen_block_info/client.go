@@ -75,7 +75,7 @@ func (c *UnseenBlocksTopicClient) ProduceSync(
 	return nil
 }
 
-// ConsumeLoop получает блоки от лидера и сохраняет их в базу данных.
+// ConsumeLoop получает блоки от лидера, обрабатывает и сохраняет их в базу данных.
 // Note: при попытке сохранить уже обработанные блоки мы просто выполним Upsert, перезаписав существующие данные.
 func (c *UnseenBlocksTopicClient) ConsumeLoop(
 	ctx context.Context,
@@ -101,14 +101,8 @@ func (c *UnseenBlocksTopicClient) ConsumeLoop(
 pollAgain:
 	for ctx.Err() == nil {
 		if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
-			log.Info().Msg("Finish consuming due to reaching target block ID")
-			err := benchmark.IncrementFinishedWorkersCount(ctx)
-			if err != nil {
-				panic(err)
-			}
 			return
 		}
-
 		// Ретраи нужны, чтобы добавить задержку перед следующим получением записей из Kafka,
 		// если нам не удалось их получить с первого раза.
 		fetches, err := backoff.Retry(ctx, pollFetches, backoff.WithMaxElapsedTime(10))
@@ -117,20 +111,30 @@ pollAgain:
 			goto pollAgain
 		}
 
-		group, fetchesCtx := errgroup.WithContext(context.Background())
+		group := errgroup.Group{}
 		group.SetLimit(c.WorkersNumber)
 
 		iter := fetches.RecordIter()
-		for !iter.Done() && fetchesCtx.Err() == nil {
+		for !iter.Done() {
 			record := iter.Next()
 			// Логика обработки блоков.
 			group.Go(func() error {
-				if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
-					return nil
+				if benchmark.Enabled() {
+					defer func() {
+						if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
+							log.Info().Msg("Finish consuming due to reaching target block ID")
+							err := benchmark.IncrementFinishedWorkersCount(ctx)
+							if err != nil {
+								panic(err)
+							}
+							return
+						}
+					}()
 				}
+
 				defer func() {
 					totalProcessedBlocks.Add(1)
-					//log.Info().Msgf("Total proccessed blocks: %v", totalProcessedBlocks.Load())
+					log.Info().Msgf("Total proccessed blocks: %v", totalProcessedBlocks.Load())
 				}()
 
 				blockInfoProto := &desc.UnseenBlockInfo{}
@@ -147,8 +151,11 @@ pollAgain:
 					shardsPtrs = append(shardsPtrs, shard)
 				}
 
-				return processBlock(fetchesCtx, blockInfo.Master, shardsPtrs)
+				return processBlock(ctx, blockInfo.Master, shardsPtrs)
 			})
+			if totalProcessedBlocks.Load() >= benchmark.TargetBlocksNumber() {
+				return
+			}
 		}
 
 		err = group.Wait()

@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indexer-deployment
+spec:
+  replicas: 8
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+       maxUnavailable: 1
+       maxSurge: 1
+   selector:
+     matchLabels:
+       app: indexer
+   template:
+     metadata:
+       labels:
+         app: indexer
+     spec:
+       containers:
+         - name: indexer
+           image: gonarch/ton-indexer:latest
+           ports:
+             - containerPort: 8080
+           envFrom:
+             - configMapRef:
+                 name: indexer-config
+             - secretRef:
+                 name: indexer-secrets
+           resources:
+             requests:
+               memory: "256Mi"
+               cpu: "125m"
+             limits:
+               memory: "512Mi "
+               cpu: "250m"

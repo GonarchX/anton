@@ -214,7 +214,7 @@ func (r *Repository) GetAddressLabel(ctx context.Context, a addr.Address) (*core
 	return &label, nil
 }
 
-func (r *Repository) AddAccountStates(ctx context.Context, tx bun.Tx, accounts []*core.AccountState) error {
+func (r *Repository) AddAccountStates(ctx context.Context, accounts []*core.AccountState) error {
 	if len(accounts) == 0 {
 		return nil
 	}
@@ -242,7 +242,7 @@ func (r *Repository) AddAccountStates(ctx context.Context, tx bun.Tx, accounts [
 		return errors.Wrapf(err, "write data to key-value store")
 	}
 
-	_, err := tx.NewInsert().
+	_, err := r.pg.NewInsert().
 		Model(&accounts).
 		On("CONFLICT (address,last_tx_lt) DO UPDATE").
 		Exec(ctx)
@@ -258,7 +258,7 @@ func (r *Repository) AddAccountStates(ctx context.Context, tx bun.Tx, accounts [
 	}
 
 	for a, lt := range addrTxLT {
-		_, err := tx.NewInsert().
+		_, err := r.pg.NewInsert().
 			Model(&core.LatestAccountState{
 				Address:  a,
 				LastTxLT: lt,
