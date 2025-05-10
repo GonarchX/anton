@@ -1,0 +1,19 @@
+replica:
+  replicaCount: 2
+
+sentinel:
+  enabled: true
+  masterSet: "mymaster"
+  quorum: 2
+
+persistence:
+  enabled: true
+  size: 128Mi
+
+resources:
+  requests:
+    memory: "25Mi"
+    cpu: "30m"
+  limits:
+    memory: "50Mi"
+    cpu: "50m"

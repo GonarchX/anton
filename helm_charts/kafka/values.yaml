@@ -1,0 +1,16 @@
+replicaCount: 3
+
+auth:
+  clientProtocol: plaintext
+  interBrokerProtocol: plaintext
+
+zookeeper:
+  enabled: true
+  replicaCount: 3
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+service:
+  type: ClusterIP

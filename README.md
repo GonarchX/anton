@@ -132,7 +132,7 @@ nano .env
 | `RESCAN_SELECT_LIMIT`  | Number of rows to fetch for rescan                       | 3000    | 1000                                                               |
 | `LITESERVERS`          | Lite servers to connect to                               |         | 135.181.177.59:53312 aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=  |
 | `DEBUG_LOGS`           | Debug logs enabled                                       | false   | true                                                               |
-| `REDIS_ADDRESS`        | Redis address                                            |         | localhost:6379                                                     |
+| `REDIS_ADDRESSES`      | Redis address                                            |         | localhost:6379                                                     |
 | `REDIS_PASSWORD`       | Redis password                                           |         | pass                                                               |
 | `KAFKA_URL`            | List of Kafka brokers to connect to                      |         | localhost:9092;localhost:9093                                      |
 

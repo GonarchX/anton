@@ -1,0 +1,35 @@
+version: '3.5'
+services:
+  zookeeper:
+    image: zookeeper:3.7
+    container_name: zookeeper
+    hostname: zookeeper
+    networks:
+      clickhouse-cluster-network:
+  clickhouse01:
+    image: clickhouse/clickhouse-server:22.5
+    container_name: clickhouse01
+    hostname: clickhouse01
+    networks:
+      clickhouse-cluster-network:
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - ${PWD}/clickhouse01:/etc/clickhouse-server
+    depends_on:
+      - zookeeper
+  clickhouse02:
+    image: clickhouse/clickhouse-server:22.5
+    container_name: clickhouse02
+    hostname: clickhouse02
+    networks:
+      clickhouse-cluster-network:
+    volumes:
+      - ${PWD}/clickhouse02:/etc/clickhouse-server
+    depends_on:
+      - zookeeper
+
+networks:
+  clickhouse-cluster-network:
+    name: clickhouse-cluster-network
