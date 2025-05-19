@@ -139,7 +139,6 @@ var cachedTxs []*core.Transaction
 
 // BlockTransactions возвращает транзакции указанного блока
 func (s *Service) BlockTransactions(ctx context.Context, master, b *ton.BlockIDExt) ([]*core.Transaction, error) {
-	//if cachedTxs != nil {
 	//	return cachedTxs, nil
 	//}
 

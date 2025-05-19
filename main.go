@@ -10,13 +10,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/tonindexer/anton/cmd/archive"
-	"github.com/tonindexer/anton/cmd/contract"
 	"github.com/tonindexer/anton/cmd/db"
 	"github.com/tonindexer/anton/cmd/indexer"
-	"github.com/tonindexer/anton/cmd/label"
-	"github.com/tonindexer/anton/cmd/rescan"
-	"github.com/tonindexer/anton/cmd/web"
 )
 
 func setupLogger() {
@@ -39,11 +34,6 @@ func main() {
 		Commands: []*cli.Command{
 			db.Command,
 			indexer.Command,
-			web.Command,
-			archive.Command,
-			contract.Command,
-			label.Command,
-			rescan.Command,
 		},
 	}
 	if err := app.Run(os.Args); err != nil {

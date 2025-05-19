@@ -1,0 +1,25 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="new_blocks_indexing" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="anton" />
+    <working_directory value="$PROJECT_DIR$" />
+    <parameters value="indexer --contracts-dir ./abi/known/" />
+    <envs>
+      <env name="BENCHMARK_ENABLED" value="true" />
+      <env name="BENCHMARK_FINISHED_WORKERS_TARGET" value="1" />
+      <env name="BENCHMARK_TARGET_BLOCK_ID" value="47619426" />
+      <env name="BENCHMARK_TARGET_BLOCKS_NUMBER" value="50" />
+      <env name="DB_CH_URL" value="clickhouse://user:pass@localhost:9000/ton?sslmode=disable" />
+      <env name="DB_PG_URL" value="postgres://user:pass@localhost:5432/ton?sslmode=disable" />
+      <env name="DEBUG_LOGS" value="false" />
+      <env name="DYLD_LIBRARY_PATH" value="/usr/local/lib:$$DYLD_LIBRARY_PATH" />
+      <env name="FROM_BLOCK" value="47619426" />
+      <env name="LITESERVERS" value="135.181.177.59:53312|aF91CuUHuuOv9rm2W5+O/4h38M3sRm40DtSdRxQhmtQ=" />
+      <env name="UNSEEN_BLOCK_WORKERS" value="16" />
+      <env name="WORKERS" value="8" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="github.com/tonindexer/anton" />
+    <directory value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>

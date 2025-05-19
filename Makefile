@@ -38,10 +38,10 @@ generate:
 	$(PROTOC_BIN) --go_out=./internal/generated/proto --go-grpc_out=./internal/generated/proto api/proto/*.proto
 
 clear:
-	@echo "Удаление Docker volumes..."
+	@echo "Removing Docker volumes..."
 	@docker volume rm anton_idx_ch_data &
 	@docker volume rm anton_idx_pg_data &
 	@docker volume rm anton_redis_data &
 	@docker volume rm anton_kafka_data &
 	wait
-	@echo "Завершено."
+	@echo "Finish."

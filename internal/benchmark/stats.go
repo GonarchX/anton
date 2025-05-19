@@ -89,7 +89,7 @@ func (s *Stats) String() string {
 	} else {
 		report += "No master blocks to compute averages.\n"
 	}
-	//2m15 345 + 3895
+
 	if shardCount > 0 {
 		report += fmt.Sprintf("Avg Shards per Master Block: %.2f\n", float64(shardCount)/float64(masterCount))
 		report += fmt.Sprintf("Avg Transactions per Shard: %.2f\n", float64(shardTxs)/float64(shardCount))
