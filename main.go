@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/google/uuid"
+	"github.com/tonindexer/anton/cmd/web"
 	"os"
 
 	"github.com/allisson/go-env"
@@ -34,6 +35,7 @@ func main() {
 		Commands: []*cli.Command{
 			db.Command,
 			indexer.Command,
+			web.Command,
 		},
 	}
 	if err := app.Run(os.Args); err != nil {
