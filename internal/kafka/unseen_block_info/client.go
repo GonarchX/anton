@@ -159,7 +159,7 @@ pollAgain:
 		}
 
 		err = group.Wait()
-		if err != nil { // TODO: если нужно падать, то можно добавить отдельную ErrTerminate ошибку
+		if err != nil {
 			log.Error().Err(err).Msgf("failed to process unseen block info")
 			goto pollAgain
 		}

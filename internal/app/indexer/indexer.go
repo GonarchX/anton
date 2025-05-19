@@ -62,39 +62,6 @@ func (s *Service) running() bool {
 	return s.run
 }
 
-//func (s *Service) Start() error {
-//	/*ctx := context.Background()
-//
-//	fromBlock := s.FromBlock
-//
-//	lastMaster, err := s.blockRepo.GetLastMasterBlock(ctx)
-//	switch {
-//	case err == nil:
-//		fromBlock = lastMaster.SeqNo + 1
-//	case !errors.Is(err, core.ErrNotFound):
-//		return errors.Wrap(err, "cannot get last masterchain block")
-//	}
-//
-//	s.mx.Lock()
-//	s.run = true
-//	s.mx.Unlock()
-//
-//	blocksChan := make(chan *core.Block, s.Workers*2)
-//
-//	s.wg.Add(1)
-//	go s.fetchMasterLoop(fromBlock, blocksChan)
-//
-//	s.wg.Add(1)
-//	go s.saveBlocksLoop(blocksChan)
-//
-//	log.Info().
-//		Uint32("from_block", fromBlock).
-//		Int("workers", s.Workers).
-//		Msg("started")
-//	*/
-//	return nil
-//}
-
 // Start начинает индексацию блоков с учетом лидерства.
 func (s *Service) Start(ctx context.Context) error {
 	// Логика обработки блока после получения из Kafka.
