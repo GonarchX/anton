@@ -20,20 +20,18 @@ import (
 
 var _ app.IndexerService = (*Service)(nil)
 
-type (
-	Service struct {
-		*app.IndexerConfig
+type Service struct {
+	*app.IndexerConfig
 
-		BlockRepo   core.BlockRepository
-		txRepo      core.TransactionRepository
-		msgRepo     repository.Message
-		accountRepo core.AccountRepository
+	BlockRepo   core.BlockRepository
+	txRepo      core.TransactionRepository
+	msgRepo     repository.Message
+	accountRepo core.AccountRepository
 
-		run bool
-		mx  sync.RWMutex
-		wg  sync.WaitGroup
-	}
-)
+	run bool
+	mx  sync.RWMutex
+	wg  sync.WaitGroup
+}
 
 func NewService(cfg *app.IndexerConfig) *Service {
 	var s = new(Service)

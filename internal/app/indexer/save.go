@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"fmt"
 	"golang.org/x/sync/errgroup"
 	"sort"
 	"time"
@@ -148,8 +147,12 @@ func (s *Service) getMessageSource(ctx context.Context, msg *core.Message) (skip
 		return true
 	}
 
-	panic(fmt.Errorf("unknown source of message with dst tx hash %x on block (%d, %d, %d) from %s to %s",
-		msg.DstTxHash, msg.DstWorkchain, msg.DstShard, msg.DstBlockSeqNo, msg.SrcAddress.String(), msg.DstAddress.String()))
+	log.Error().
+		Hex("dst_tx_hash", msg.DstTxHash).
+		Int32("dst_workchain", msg.DstWorkchain).Int64("dst_shard", msg.DstShard).Uint32("dst_block_seq_no", msg.DstBlockSeqNo).
+		Str("src_address", msg.SrcAddress.String()).Str("dst_address", msg.DstAddress.String()).
+		Msg("cannot find source message")
+	return true
 }
 
 func (s *Service) uniqMessages(ctx context.Context, transactions []*core.Transaction) []*core.Message {
@@ -216,9 +219,9 @@ func (s *Service) saveBlock(ctx context.Context, master *core.Block) error {
 		return s.broadcastNewData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
 	})
 	errGroup.Go(func() error {
-		time.Sleep(30 * time.Millisecond)
-		return nil
-		//return s.insertData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
+		//time.Sleep(30 * time.Millisecond)
+		//return nil
+		return s.insertData(ctx, s.uniqAccounts(newTransactions), uniqMsgs, newTransactions, newBlocks)
 	})
 	if err := errGroup.Wait(); err != nil {
 		return err
